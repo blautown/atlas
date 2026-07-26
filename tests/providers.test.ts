@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ResponsesApiProvider } from "../src/providers.js";
+import { OllamaProvider, ResponsesApiProvider } from "../src/providers.js";
 
 test("Groq tool-call failures retry as schema-only responses", async () => {
   const originalFetch = globalThis.fetch;
@@ -97,6 +97,43 @@ test("Groq rate limits retry once after the bounded provider delay", async () =>
     const output = await provider.generate({ system: "Return JSON.", input: "Status?" });
     assert.equal(output, "{\"status\":\"operational\"}");
     assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
+test("Ollama disables thinking and returns only structured final content", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody: Record<string, any> | undefined;
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({
+      message: { content: "private trace that must not escape</think>\n{\"status\":\"ready\"}", thinking: "hidden" }
+    }), { status: 200 });
+  };
+  try {
+    const provider = new OllamaProvider("qwen3:4b", "http://ollama.test");
+    const output = await provider.generate({
+      system: "Return status.", input: "Are you ready?",
+      jsonSchema: { type: "object", required: ["status"], properties: { status: { type: "string" } } }
+    });
+    assert.equal(output, '{"status":"ready"}');
+    assert.equal(requestBody?.think, false);
+    assert.equal(requestBody?.stream, false);
+    assert.match(requestBody?.messages[1].content, /\/no_think/);
+    assert.deepEqual(requestBody?.format.required, ["status"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Ollama health distinguishes an installed model", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ models: [{ name: "qwen3:4b" }] }), { status: 200 });
+  try {
+    const provider = new OllamaProvider("qwen3:4b", "http://ollama.test");
+    assert.deepEqual(await provider.health(), { status: "online", model: "qwen3:4b", detail: "Local model ready." });
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -12,7 +12,7 @@ class AdaModel implements ModelProvider {
   async generate(request: { system: string; input: string }): Promise<string> {
     assert.match(request.system, /single human-facing/);
     assert.match(request.input, /Laptop Manager/);
-    assert.ok(request.input.length < 20_000, `ADA context was not bounded: ${request.input.length} characters`);
+    assert.ok(request.input.length < 10_000, `ADA context was not bounded: ${request.input.length} characters`);
     const managerId = request.input.match(/"manager_id":"([^"]+)"/)?.[1] ?? "missing";
     return JSON.stringify({
       reply: "Your laptop is online. I recommend handing this task to its Manager.",

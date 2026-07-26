@@ -2,6 +2,8 @@ export type Json = null | boolean | number | string | Json[] | { [key: string]: 
 
 export interface ModelProvider {
   readonly name: string;
+  readonly model?: string;
+  health?(): Promise<{ status: "online" | "offline" | "missing_model"; model: string; detail: string }>;
   generate(request: {
     system: string;
     input: string;

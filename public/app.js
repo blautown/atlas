@@ -1,4 +1,5 @@
 let state = null;
+let providerHealth = null;
 let activeChat = { kind: "ada", ownerId: "ada" };
 let jobPoll = null;
 let activeView = "overview";
@@ -25,7 +26,7 @@ function notice(message, error = false) {
 }
 
 async function refresh() {
-  state = await request("/api/state");
+  [state, providerHealth] = await Promise.all([request("/api/state"), request("/api/providers/health")]);
   render();
 }
 
@@ -37,7 +38,8 @@ function latestJob(kind, ownerId, milestoneId) {
 function render() {
   const c = state.capacity;
   $("#fleetState").textContent = c.environmentsTotal ? `${c.environmentsOnline} of ${c.environmentsTotal} environments online` : "Ready for first environment";
-  $("#providerStatus").innerHTML = `<p class="nav-label">PROVIDERS</p><strong>${esc(state.providers.model)}</strong><small>Model</small><strong>${esc(state.providers.execution)}</strong><small>Execution</small>`;
+  const modelLabel = state.providers.modelId ? `${state.providers.model} · ${state.providers.modelId}` : state.providers.model;
+  $("#providerStatus").innerHTML = `<p class="nav-label">PROVIDERS</p><strong>${esc(modelLabel)}</strong><small>${esc(providerHealth?.status ?? "unknown")} · ${esc(providerHealth?.detail ?? "Health unavailable")}</small><strong>${esc(state.providers.execution)}</strong><small>Execution</small>`;
   $("#metrics").innerHTML = [
     ["Operational capacity", `${c.score}%`, "Available supervised workload"],
     ["Environment fleet", `${c.environmentsOnline}/${c.environmentsTotal}`, "Online and connected"],

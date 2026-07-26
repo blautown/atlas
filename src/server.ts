@@ -32,6 +32,13 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
     send(response, 200, { status: "ok", service: "atlas", time: new Date().toISOString() });
     return true;
   }
+  if (request.method === "GET" && url.pathname === "/api/providers/health") {
+    const health = atlas.model.health
+      ? await atlas.model.health()
+      : { status: "online", model: atlas.model.model ?? atlas.model.name, detail: "Remote provider configured." };
+    send(response, 200, health);
+    return true;
+  }
   if (request.method === "GET" && url.pathname === "/api/state") {
     send(response, 200, atlas.state());
     return true;

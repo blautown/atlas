@@ -26,7 +26,7 @@ export class ResponsesApiProvider implements ModelProvider {
   constructor(
     readonly name: string,
     private readonly apiKey: string | undefined,
-    private readonly model: string,
+    readonly model: string,
     private readonly baseUrl: string,
     private readonly extraHeaders: Record<string, string> = {}
   ) {}
@@ -94,6 +94,76 @@ export class ResponsesApiProvider implements ModelProvider {
   }
 }
 
+export class OllamaProvider implements ModelProvider {
+  readonly name = "ollama";
+  private inferenceQueue: Promise<void> = Promise.resolve();
+
+  constructor(
+    readonly model = process.env.ATLAS_MODEL ?? "qwen3:4b",
+    private readonly baseUrl = process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434",
+    private readonly timeoutMs = Math.max(1_000, Number(process.env.OLLAMA_TIMEOUT_MS ?? 120_000))
+  ) {}
+
+  async health(): Promise<{ status: "online" | "offline" | "missing_model"; model: string; detail: string }> {
+    try {
+      const response = await fetch(`${this.baseUrl.replace(/\/$/, "")}/api/tags`, { signal: AbortSignal.timeout(5_000) });
+      if (!response.ok) return { status: "offline", model: this.model, detail: `Ollama returned HTTP ${response.status}.` };
+      const payload = await response.json() as { models?: Array<{ name?: string; model?: string }> };
+      const available = payload.models?.some((item) => item.name === this.model || item.model === this.model) ?? false;
+      return available
+        ? { status: "online", model: this.model, detail: "Local model ready." }
+        : { status: "missing_model", model: this.model, detail: `Run ollama pull ${this.model}.` };
+    } catch {
+      return { status: "offline", model: this.model, detail: "Ollama is not reachable at the configured local address." };
+    }
+  }
+
+  generate(request: { system: string; input: string; jsonSchema?: Record<string, unknown> }): Promise<string> {
+    const task = this.inferenceQueue.then(() => this.generateNow(request), () => this.generateNow(request));
+    this.inferenceQueue = task.then(() => undefined, () => undefined);
+    return task;
+  }
+
+  private async generateNow(request: { system: string; input: string; jsonSchema?: Record<string, unknown> }): Promise<string> {
+    const response = await fetch(`${this.baseUrl.replace(/\/$/, "")}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(this.timeoutMs),
+      body: JSON.stringify({
+        model: this.model,
+        messages: [
+          { role: "system", content: `${request.system}\n\nReturn only the final answer. Never expose private reasoning or hidden chain-of-thought.` },
+          { role: "user", content: `${request.input}\n\n/no_think` }
+        ],
+        stream: false,
+        think: false,
+        format: request.jsonSchema,
+        keep_alive: process.env.OLLAMA_KEEP_ALIVE ?? "10m",
+        options: {
+          temperature: Number(process.env.ATLAS_OLLAMA_TEMPERATURE ?? 0.2),
+          num_predict: Math.max(128, Number(process.env.OLLAMA_MAX_OUTPUT_TOKENS ?? 600)),
+          num_ctx: Math.max(2_048, Number(process.env.OLLAMA_CONTEXT_LENGTH ?? 8_192))
+        }
+      })
+    });
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 300);
+      if (response.status === 404) throw new Error(`Ollama model "${this.model}" is not installed. Run ollama pull ${this.model}.`);
+      throw new Error(`Ollama request failed (${response.status}): ${detail}`);
+    }
+    const payload = await response.json() as { message?: { content?: string } };
+    let content = payload.message?.content?.trim() ?? "";
+    const closingThink = content.lastIndexOf("</think>");
+    if (closingThink >= 0) content = content.slice(closingThink + 8).trim();
+    content = content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+    if (!content) throw new Error("Ollama returned no final answer.");
+    if (request.jsonSchema) {
+      try { JSON.parse(content); } catch { throw new Error("Ollama returned invalid structured JSON."); }
+    }
+    return content;
+  }
+}
+
 export class LocalExecutionBackend implements ExecutionBackend {
   readonly name = "local";
 
@@ -155,6 +225,7 @@ export function createProviders(): {
       : process.env.OPENROUTER_API_KEY ? "openrouter"
         : "openai");
   const modelProviders: Record<string, ModelProvider> = {
+    ollama: new OllamaProvider(),
     groq: new ResponsesApiProvider(
       "groq",
       process.env.GROQ_API_KEY,
@@ -177,7 +248,7 @@ export function createProviders(): {
   };
   const model = modelProviders[provider];
   if (!model) {
-    throw new Error(`Unsupported ATLAS_MODEL_PROVIDER "${provider}". Use groq, openrouter, or openai.`);
+    throw new Error(`Unsupported ATLAS_MODEL_PROVIDER "${provider}". Use ollama, groq, openrouter, or openai.`);
   }
   return {
     model,

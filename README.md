@@ -9,17 +9,18 @@ ATLAS is a self-extensible operating platform for supervised AI environments, ma
 
 ## Model providers
 
-ATLAS supports three replaceable Responses API providers:
+ATLAS supports a private local provider and three replaceable hosted providers:
 
 | Provider | Configuration | Default model |
 | --- | --- | --- |
+| Ollama | `ATLAS_MODEL_PROVIDER=ollama` and `OLLAMA_BASE_URL=http://127.0.0.1:11434` | `qwen3:4b` |
 | Groq | `ATLAS_MODEL_PROVIDER=groq` and `GROQ_API_KEY` | `openai/gpt-oss-20b` |
 | OpenRouter | `ATLAS_MODEL_PROVIDER=openrouter` and `OPENROUTER_API_KEY` | `openrouter/free` |
 | OpenAI | `ATLAS_MODEL_PROVIDER=openai` and `OPENAI_API_KEY` | `gpt-5.6-sol` |
 
 Copy the relevant non-secret settings from `.env.example` into `.env.local`. Never commit `.env.local`.
 
-Groq is recommended for the free bootstrap because its free-plan limits are currently more suitable for interactive development. OpenRouter's free router is useful for experimentation and fallback diversity but has lower default daily request limits.
+Ollama is recommended when a suitable local model is installed because it keeps routine ATLAS inference private and avoids hosted request limits. Groq and OpenRouter remain optional hosted alternatives; configure them explicitly rather than enabling silent fallback.
 
 ## Launch
 

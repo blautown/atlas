@@ -182,7 +182,7 @@ export class Atlas {
       messages: this.db.all(`SELECT msg.*, c.kind conversation_kind, c.owner_id
         FROM messages msg JOIN conversations c ON c.id=msg.conversation_id
         ORDER BY msg.created_at ASC LIMIT 200`),
-      providers: { model: this.model.name, execution: this.execution.name, browser: "unconfigured" }
+      providers: { model: this.model.name, modelId: this.model.model ?? null, execution: this.execution.name, browser: "unconfigured" }
     };
   }
 
@@ -263,32 +263,33 @@ export class Atlas {
   async adaChat(message: string, report: (progress: number, stage: string) => void = () => {}): Promise<Record<string, unknown>> {
     const conversation = this.ensureConversation("ada", null);
     this.saveMessage(conversation, "user", message);
-    const recent = this.db.all<Row>("SELECT role,content FROM messages WHERE conversation_id=? ORDER BY created_at DESC LIMIT 6", conversation).reverse();
+    const recent = this.db.all<Row>("SELECT role,content FROM messages WHERE conversation_id=? ORDER BY created_at DESC LIMIT 4", conversation).reverse();
     const live = this.state() as any;
     const context = {
       capacity: live.capacity,
-      environments: live.environments.slice(0, 12).map((environment: Row) => ({
-        id: environment.id, name: clip(environment.name, 120), kind: environment.kind, status: environment.status,
-        manager_id: environment.manager_id, manager_name: clip(environment.manager_name, 120), manager_status: environment.manager_status,
-        health: environment.health
+      environments: live.environments.slice(0, 6).map((environment: Row) => ({
+        id: environment.id, name: clip(environment.name, 80), kind: environment.kind, status: environment.status,
+        manager_id: environment.manager_id, manager_name: clip(environment.manager_name, 80), manager_status: environment.manager_status
       })),
-      agents: live.agents.slice(0, 8).map((agent: Row) => ({
-        id: agent.id, environment_id: agent.environment_id, manager_id: agent.manager_id, name: clip(agent.name, 120),
-        lifecycle: agent.lifecycle, objective: clip(agent.objective, 400), status: agent.status
+      agentSummary: {
+        total: live.agents.length,
+        persistent: live.agents.filter((agent: Row) => agent.lifecycle === "persistent").length,
+        temporary: live.agents.filter((agent: Row) => agent.lifecycle === "temporary").length,
+        active: live.agents.filter((agent: Row) => !["retired", "failed"].includes(agent.status)).length
+      },
+      workflowSummary: {
+        total: live.workflows.length,
+        enabled: live.workflows.filter((workflow: Row) => workflow.enabled).length,
+        recent: live.workflows.slice(0, 3).map((workflow: Row) => ({ id: workflow.id, name: clip(workflow.name, 80), next_run_at: workflow.next_run_at }))
+      },
+      runs: live.runs.slice(0, 3).map((run: Row) => ({
+        id: run.id, environment_id: run.environment_id, objective: clip(run.objective, 240), status: run.status, error: clip(run.error, 160)
       })),
-      workflows: live.workflows.slice(0, 8).map((workflow: Row) => ({
-        id: workflow.id, environment_id: workflow.environment_id, name: clip(workflow.name, 120),
-        instruction: clip(workflow.instruction, 400), trigger_type: workflow.trigger_type, next_run_at: workflow.next_run_at, enabled: workflow.enabled
+      pendingApprovals: live.approvals.filter((approval: Row) => approval.status === "pending").slice(0, 5).map((approval: Row) => ({
+        id: approval.id, kind: approval.kind, title: clip(approval.title, 120), requested_at: approval.requested_at
       })),
-      runs: live.runs.slice(0, 5).map((run: Row) => ({
-        id: run.id, environment_id: run.environment_id, objective: clip(run.objective), status: run.status,
-        result: clip(run.result, 600), error: clip(run.error, 300)
-      })),
-      pendingApprovals: live.approvals.filter((approval: Row) => approval.status === "pending").slice(0, 12).map((approval: Row) => ({
-        id: approval.id, kind: approval.kind, title: clip(approval.title, 160), requested_at: approval.requested_at
-      })),
-      memories: this.db.all<Row>("SELECT scope_type,scope_id,kind,content,source,confidence,created_at FROM memories ORDER BY created_at DESC LIMIT 6")
-        .map((memory) => ({ ...memory, content: clip(memory.content, 400), source: clip(memory.source, 160) }))
+      memories: this.db.all<Row>("SELECT scope_type,scope_id,kind,content,source,confidence,created_at FROM memories ORDER BY created_at DESC LIMIT 3")
+        .map((memory) => ({ ...memory, content: clip(memory.content, 240), source: clip(memory.source, 100) }))
     };
     const assistantPrompt = await readFile(path.join(this.root, "config", "ada.md"), "utf8")
       .catch(() => readFile(path.join(process.cwd(), "config", "ada.md"), "utf8"));
@@ -296,7 +297,7 @@ export class Atlas {
     report(45, "ADA is interpreting your request");
     const raw = await this.model.generate({
       system: assistantPrompt,
-      input: `Live ATLAS state:\n${json(context)}\n\nRecent ADA conversation:\n${recent.map((item) => `${item.role}: ${clip(item.content, 600)}`).join("\n")}\n\nCurrent request:\n${clip(message, 4_000)}`,
+      input: `Live ATLAS state:\n${json(context)}\n\nRecent ADA conversation:\n${recent.map((item) => `${item.role}: ${clip(item.content, 400)}`).join("\n")}\n\nCurrent request:\n${clip(message, 4_000)}`,
       jsonSchema: adaSchema
     });
     report(75, "Validating role boundaries and handoff");
