@@ -1,6 +1,6 @@
 # ATLAS
 
-ATLAS is a self-extensible operating platform for supervised AI environments, managers, agents, and workflows. This bootstrap is a local-first control plane with real SQLite persistence and a repository-connected Development Assistant.
+ATLAS is a self-extensible operating platform for supervised AI environments, managers, agents, and workflows. This bootstrap is a local-first control plane with real SQLite persistence and a repository-connected coding agent governed through ADA.
 
 ## Requirements
 
@@ -61,7 +61,7 @@ npm start
 4. The Manager creates the workflow and required agent profiles.
 5. Create a persistent agent or deploy a temporary task from **Agents & workflows**.
 6. Observe execution, results, cleanup, and audit events.
-7. Use **Development Assistant** to request a platform change.
+7. Ask **ADA** to delegate a platform change to its coding agent.
 8. Review its proposed writes or checks under **Audit & approvals**.
 
 ## Architecture
@@ -76,7 +76,7 @@ npm start
 
 The Development Assistant view presents roadmap milestones with **Discuss** and **Start milestone** actions. These generate structured chat prompts automatically so platform development stays tied to repository-owned objectives and acceptance criteria.
 
-Operational agents never communicate directly with the user. Environment Managers are the reporting and supervision boundary. The Development Assistant is separate and can only change ATLAS through repository-scoped actions and user-approved checks/writes.
+ADA is the user-facing guide across ATLAS and can explain live state or prepare a governed handoff to an environment Manager or the Development Assistant. Operational agents never communicate directly with the user. Environment Managers are the operational reporting and supervision boundary. ADA's coding agent has no direct user interface and can only change ATLAS through repository-scoped actions and user-approved checks/writes; its reports return through ADA.
 
 ## Honest bootstrap limits
 

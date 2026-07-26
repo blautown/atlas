@@ -138,7 +138,12 @@ textarea { min-height: 92px; resize: vertical; }
 .chat-dock { position: fixed; z-index: 42; right: 17px; bottom: 18px; display: grid; gap: 8px; justify-items: center; padding: 8px 7px; border: 1px solid var(--line); border-radius: 15px; background: #0b1016e8; box-shadow: 0 16px 50px #0008; backdrop-filter: blur(18px); }
 .dock-label { font-size: 8px; letter-spacing: .14em; color: #65727e; }
 .chat-launcher { width: 43px; height: 43px; position: relative; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-raised); color: #b9c6d0; font-size: 10px; font-weight: 850; }
+.chat-launcher.primary { width: 48px; border-color: #355248; color: var(--accent); }
 .chat-launcher:hover, .chat-launcher.selected { border-color: #4b806b; background: var(--accent-soft); color: var(--accent); }
+.handoff { display: grid; gap: 6px; margin-top: 9px; padding: 9px; border: 1px solid #355248; border-radius: 8px; background: var(--accent-soft); }
+.handoff small, .handoff strong { display: block; }
+.handoff strong { font-size: 11px; }
+.handoff button { justify-self: start; margin-top: 2px; }
 .launcher-signal { position: absolute; right: -2px; bottom: -2px; width: 10px; height: 10px; border: 2px solid #0b1016; border-radius: 50%; background: var(--accent); }
 .launcher-signal.busy { background: var(--amber); animation: pulse 1.4s infinite; }
 .launcher-signal.bad { background: var(--red); }

@@ -25,7 +25,7 @@
   <main>
     <header class="topbar">
       <div><p class="eyebrow">ATLAS WORKSPACE</p><h1 id="viewTitle">Overview</h1><p class="view-description" id="viewDescription">System capacity, activity, and anything that needs you.</p></div>
-      <div class="header-actions"><button class="secondary" id="refresh">Refresh</button><button data-go="environments">Connect environment</button></div>
+      <div class="header-actions"><button class="secondary" id="refresh">Refresh</button><button class="secondary" id="openAdaChat">Ask ADA</button><button data-go="environments">Connect environment</button></div>
     </header>
     <div id="notice" role="status" aria-live="polite"></div>
 
@@ -65,8 +65,8 @@
     </section>
 
     <section id="development" class="view">
-      <div class="page-intro"><div><h2>Platform roadmap</h2><p id="roadmapPurpose">Loading the repository roadmap.</p></div><button id="openDevChat">Open Development Assistant</button></div>
-      <article><div class="article-head"><div><p class="section-kicker">REPOSITORY SOURCE OF TRUTH</p><h2>Build sequence</h2></div><span class="badge">Assistant aware</span></div><div id="roadmapList"></div></article>
+      <div class="page-intro"><div><h2>Platform roadmap</h2><p id="roadmapPurpose">Loading the repository roadmap.</p></div><button id="openDevChat">Discuss with ADA</button></div>
+      <article><div class="article-head"><div><p class="section-kicker">REPOSITORY SOURCE OF TRUTH</p><h2>Build sequence</h2></div><span class="badge">ADA coding agent ready</span></div><div id="roadmapList"></div></article>
     </section>
 
     <section id="audit" class="view">
@@ -78,16 +78,16 @@
   <div class="chat-dock" id="chatDock" aria-label="ATLAS conversations"></div>
   <aside class="messenger hidden" id="messenger" aria-label="ATLAS messenger">
     <div class="messenger-head">
-      <div class="messenger-avatar" id="messengerAvatar">DA</div>
-      <div class="messenger-identity"><strong id="messengerTitle">Development Assistant</strong><small id="messengerSubtitle">ATLAS platform development</small></div>
+      <div class="messenger-avatar" id="messengerAvatar">ADA</div>
+      <div class="messenger-identity"><strong id="messengerTitle">ADA</strong><small id="messengerSubtitle">Your guide across ATLAS</small></div>
       <button class="text-button" id="minimiseMessenger" type="button">Minimise</button>
       <button class="text-button" id="closeMessenger" type="button">Close</button>
     </div>
     <div class="messenger-context" id="messengerContext"></div>
     <div class="messenger-messages" id="messengerMessages"></div>
     <form class="messenger-composer" id="messengerForm">
-      <textarea name="message" rows="2" required aria-label="Message" placeholder="Ask the Development Assistant to inspect or improve ATLAS…"></textarea>
-      <div class="composer-foot"><small id="composerHint">Changes remain approval-controlled.</small><button type="submit">Send</button></div>
+      <textarea name="message" rows="2" required aria-label="Message" placeholder="What would you like to understand or accomplish?…"></textarea>
+      <div class="composer-foot"><small id="composerHint">ADA can explain live state and prepare governed handoffs.</small><button type="submit">Send</button></div>
     </form>
   </aside>
   <script type="module" src="/app.js"></script>

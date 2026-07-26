@@ -50,6 +50,47 @@ const managerSchema = {
   }
 };
 
+const adaSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["reply", "reasoningSummary", "updates", "needsInput", "handoff"],
+  properties: {
+    reply: { type: "string" },
+    reasoningSummary: { type: "string" },
+    updates: { type: "array", items: { type: "string" } },
+    needsInput: { type: "boolean" },
+    handoff: {
+      anyOf: [
+        { type: "null" },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["type", "ownerId", "title", "prompt"],
+          properties: {
+            type: { type: "string", enum: ["manager", "development"] },
+            ownerId: { type: ["string", "null"] },
+            title: { type: "string" },
+            prompt: { type: "string" }
+          }
+        }
+      ]
+    }
+  }
+};
+
+const inspectionSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["paths"],
+  properties: {
+    paths: {
+      type: "array",
+      maxItems: 4,
+      items: { type: "string" }
+    }
+  }
+};
+
 const developerSchema = {
   type: "object",
   additionalProperties: false,
@@ -203,6 +244,56 @@ export class Atlas {
     return this.db.get<Row>("SELECT * FROM workflows WHERE id=?", workflowId)!;
   }
 
+  async adaChat(message: string, report: (progress: number, stage: string) => void = () => {}): Promise<Record<string, unknown>> {
+    const conversation = this.ensureConversation("ada", null);
+    this.saveMessage(conversation, "user", message);
+    const recent = this.db.all<Row>("SELECT role,content FROM messages WHERE conversation_id=? ORDER BY created_at DESC LIMIT 16", conversation).reverse();
+    const live = this.state() as any;
+    const context = {
+      capacity: live.capacity,
+      environments: live.environments,
+      managers: live.managers,
+      agents: live.agents,
+      workflows: live.workflows,
+      runs: live.runs.slice(0, 10),
+      pendingApprovals: live.approvals.filter((approval: Row) => approval.status === "pending"),
+      memories: this.db.all<Row>("SELECT scope_type,scope_id,kind,content,source,confidence,created_at FROM memories ORDER BY created_at DESC LIMIT 30")
+    };
+    const assistantPrompt = await readFile(path.join(this.root, "config", "ada.md"), "utf8")
+      .catch(() => readFile(path.join(process.cwd(), "config", "ada.md"), "utf8"));
+    report(20, "Reading live ATLAS state");
+    report(45, "ADA is interpreting your request");
+    const raw = await this.model.generate({
+      system: assistantPrompt,
+      input: `Live ATLAS state:\n${json(context)}\n\nRecent ADA conversation:\n${recent.map((item) => `${item.role}: ${item.content}`).join("\n")}\n\nCurrent request:\n${message}`,
+      jsonSchema: adaSchema
+    });
+    report(75, "Validating role boundaries and handoff");
+    const result = JSON.parse(raw) as any;
+    if (result.handoff?.type === "manager") {
+      const manager = this.db.get<Row>("SELECT id FROM managers WHERE id=?", result.handoff.ownerId);
+      if (!manager) {
+        result.handoff = null;
+        result.needsInput = true;
+        result.reply = `${result.reply}\n\nI could not validate the proposed Manager against the current environment fleet. Please choose a connected environment.`;
+      }
+    }
+    if (result.handoff?.type === "development") result.handoff.ownerId = null;
+    report(90, "Recording ADA response");
+    this.saveMessage(conversation, "assistant", result.reply);
+    this.audit("ada", null, "ada.conversation", "conversation", conversation, {
+      handoff: result.handoff?.type ?? null,
+      destination: result.handoff?.ownerId ?? null
+    });
+    return {
+      reply: result.reply,
+      reasoningSummary: result.reasoningSummary,
+      updates: result.updates,
+      needsInput: result.needsInput,
+      handoff: result.handoff
+    };
+  }
+
   async managerChat(managerId: string, message: string, report: (progress: number, stage: string) => void = () => {}): Promise<Record<string, unknown>> {
     const manager = this.db.get<Row>(`SELECT m.*, e.name environment_name, e.capabilities_json
       FROM managers m JOIN environments e ON e.id=m.environment_id WHERE m.id=?`, managerId);
@@ -293,48 +384,60 @@ export class Atlas {
     }
   }
 
-  async developmentChat(message: string, jobId?: string, report: (progress: number, stage: string) => void = () => {}): Promise<Record<string, unknown>> {
+  private async codingAgentTask(message: string, jobId?: string, report: (progress: number, stage: string) => void = () => {}): Promise<Record<string, unknown>> {
     const conversation = this.ensureConversation("development", null);
     this.saveMessage(conversation, "user", message);
     const tree = (await this.listRepository()).slice(0, 250).join("\n");
     const roadmap = this.roadmap();
-    const assistantPrompt = await readFile(path.join(this.root, "config", "development-assistant.md"), "utf8")
-      .catch(() => readFile(path.join(process.cwd(), "config", "development-assistant.md"), "utf8"));
-    report(20, "Reading the roadmap and repository structure");
-    report(40, "Development Assistant is thinking and planning");
+    const assistantPrompt = await readFile(path.join(this.root, "config", "coding-agent.md"), "utf8")
+      .catch(() => readFile(path.join(process.cwd(), "config", "coding-agent.md"), "utf8"));
+    report(20, "Selecting the minimum repository evidence");
+    const inspectionRaw = await this.model.generate({
+      system: "Select the minimum repository files needed to answer the request. Return only paths from the supplied inventory. Do not assess implementation, call tools, or propose changes.",
+      input: `Repository file-name inventory:\n${tree}\n\nRequest:\n${message}`,
+      jsonSchema: inspectionSchema
+    });
+    const inspection = JSON.parse(inspectionRaw) as { paths: string[] };
+    const observations: string[] = [];
+    let evidenceCharacters = 0;
+    for (const candidate of inspection.paths) {
+      if (evidenceCharacters >= 16_000) break;
+      const target = await assertInside(this.root, candidate);
+      const content = (await readFile(target, "utf8")).slice(0, Math.min(5_000, 16_000 - evidenceCharacters));
+      observations.push(`${candidate}:\n${content}`);
+      evidenceCharacters += content.length;
+    }
+    report(45, "ADA's coding agent is reviewing verified evidence");
     const raw = await this.model.generate({
       system: assistantPrompt,
-      input: `ATLAS roadmap:\n${json(roadmap)}\n\nRepository files:\n${tree}\n\nUser request:\n${message}`,
+      input: `ATLAS roadmap:\n${json(roadmap)}\n\nUser request:\n${message}\n\nVerified repository evidence selected and read by ATLAS:\n${observations.join("\n\n") || "No file evidence was selected. Withhold repository conclusions and request clarification."}`,
       jsonSchema: developerSchema
     });
-    report(65, "Validating the plan against system integrity rules");
-    const plan = JSON.parse(raw) as any;
-    const observations: string[] = [];
+    report(70, "Validating the plan against system integrity rules");
+    const finalPlan = JSON.parse(raw) as any;
     const pending: Row[] = [];
-    for (const action of plan.actions) {
-      if (action.type === "read" && action.path) {
-        const target = await assertInside(this.root, action.path);
-        const content = (await readFile(target, "utf8")).slice(0, 20_000);
-        observations.push(`${action.path}:\n${content}`);
-      } else {
-        const approvalId = id("approval");
-        this.db.run(
-          "INSERT INTO approvals(id,kind,title,detail_json,status,requested_at) VALUES(?,?,?,?,?,?)",
-          approvalId, "development_change", action.reason, json(action), "pending", now()
-        );
-        pending.push(this.db.get<Row>("SELECT * FROM approvals WHERE id=?", approvalId)!);
-        if (jobId) this.db.run("INSERT INTO job_approvals(job_id,approval_id) VALUES(?,?)", jobId, approvalId);
-      }
+    for (const action of finalPlan.actions) {
+      if (action.type === "read") continue;
+      const approvalId = id("approval");
+      this.db.run(
+        "INSERT INTO approvals(id,kind,title,detail_json,status,requested_at) VALUES(?,?,?,?,?,?)",
+        approvalId, "development_change", action.reason, json(action), "pending", now()
+      );
+      pending.push(this.db.get<Row>("SELECT * FROM approvals WHERE id=?", approvalId)!);
+      if (jobId) this.db.run("INSERT INTO job_approvals(job_id,approval_id) VALUES(?,?)", jobId, approvalId);
     }
     report(85, pending.length ? "Preparing approval requests" : "Preparing the response");
-    const reply = observations.length ? `${plan.reply}\n\nInspected:\n${observations.join("\n\n").slice(0, 30_000)}` : plan.reply;
+    const reply = finalPlan.reply;
     this.saveMessage(conversation, "assistant", reply);
-    this.audit("development_assistant", null, "development.plan", "conversation", conversation, { approvals: pending.map((a) => a.id) });
+    this.audit("coding_agent", null, "coding_agent.plan", "conversation", conversation, {
+      approvals: pending.map((a) => a.id),
+      inspectedPaths: inspection.paths
+    });
     return {
       reply,
-      reasoningSummary: plan.reasoningSummary,
-      updates: plan.updates,
-      needsInput: plan.needsInput,
+      reasoningSummary: finalPlan.reasoningSummary,
+      updates: finalPlan.updates,
+      needsInput: finalPlan.needsInput,
       approvals: pending
     };
   }
@@ -364,6 +467,13 @@ export class Atlas {
     return { ...approval, status: decision, outcome };
   }
 
+  queueAdaChat(message: string): Row {
+    const conversation = this.ensureConversation("ada", null);
+    const job = this.createJob("ada", null, conversation, message);
+    void this.runJob(job.id, (report) => this.adaChat(message, report));
+    return job;
+  }
+
   queueManagerChat(managerId: string, message: string): Row {
     const conversation = this.ensureConversation("manager", managerId);
     const job = this.createJob("manager", managerId, conversation, message);
@@ -371,15 +481,21 @@ export class Atlas {
     return job;
   }
 
-  queueDevelopmentChat(message: string): Row {
-    const conversation = this.ensureConversation("development", null);
+  queueAdaCodingAgent(message: string): Row {
+    const adaConversation = this.ensureConversation("ada", null);
     const milestone = message.match(/milestone\s+(M\d+)/i)?.[1]?.toUpperCase() ?? null;
-    const job = this.createJob("development", null, conversation, message, milestone);
-    void this.runJob(job.id, (report) => this.developmentChat(message, job.id, report));
+    const job = this.createJob("ada", null, adaConversation, message, milestone);
+    this.saveMessage(adaConversation, "assistant", `Coding agent assigned: ${message}`);
+    void this.runJob(job.id, async (report) => {
+      const result = await this.codingAgentTask(message, job.id, report);
+      this.saveMessage(adaConversation, "assistant", `Coding agent report:\n\n${result.reply}`);
+      this.audit("coding_agent", null, "coding_agent.reported_to_ada", "conversation", adaConversation, { jobId: job.id });
+      return { ...result, delegatedRole: "coding_agent" };
+    });
     return job;
   }
 
-  private createJob(kind: "manager" | "development", ownerId: string | null, conversationId: string, prompt: string, milestoneId: string | null = null): Row {
+  private createJob(kind: "ada" | "manager" | "development", ownerId: string | null, conversationId: string, prompt: string, milestoneId: string | null = null): Row {
     const jobId = id("job");
     const timestamp = now();
     this.db.run(`INSERT INTO assistant_jobs(id,kind,owner_id,conversation_id,milestone_id,prompt,status,progress,stage,created_at,updated_at,heartbeat_at)
@@ -436,7 +552,7 @@ export class Atlas {
     }
   }
 
-  private ensureConversation(kind: "manager" | "development", ownerId: string | null): string {
+  private ensureConversation(kind: "ada" | "manager" | "development", ownerId: string | null): string {
     const existing = this.db.get<{ id: string }>("SELECT id FROM conversations WHERE kind=? AND owner_id IS ?", kind, ownerId);
     if (existing) return existing.id;
     const conversationId = id("conv");

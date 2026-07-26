@@ -9,12 +9,15 @@ import type { ExecutionBackend, ModelProvider } from "../src/types.js";
 
 class ConversationalModel implements ModelProvider {
   readonly name = "conversational-fake";
-  async generate(request: { system: string }): Promise<string> {
-    if (request.system.includes("Development Assistant")) {
+  async generate(request: { system: string; input: string }): Promise<string> {
+    if (request.system.includes("Select the minimum repository files")) {
+      return JSON.stringify({ paths: ["config/roadmap.json"] });
+    }
+    if (request.system.includes("coding agent")) {
       return JSON.stringify({
-        reply: "Repository review complete.",
-        reasoningSummary: "Compared the request with the roadmap and repository inventory.",
-        updates: ["Loaded roadmap", "Inspected repository structure"],
+        reply: "Repository review completed from verified file evidence.",
+        reasoningSummary: "Compared the roadmap with verified repository contents.",
+        updates: ["Reviewed verified evidence", "Prepared coding-agent report"],
         needsInput: false,
         actions: []
       });
@@ -38,7 +41,7 @@ class LocalFake implements ExecutionBackend {
 async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), "atlas-jobs-"));
   await mkdir(path.join(root, "migrations"));
-  for (const name of ["001_bootstrap.sql", "002_assistant_jobs.sql"]) {
+  for (const name of ["001_bootstrap.sql", "002_assistant_jobs.sql", "003_ada_conversations.sql"]) {
     await writeFile(
       path.join(root, "migrations", name),
       await import("node:fs/promises").then((fs) => fs.readFile(path.join(process.cwd(), "migrations", name)))
@@ -62,15 +65,15 @@ async function waitForTerminal(db: AtlasDatabase, jobId: string) {
   throw new Error("Job did not reach a terminal state.");
 }
 
-test("development jobs persist progress, chat, and reasoning summary", async () => {
+test("ADA coding-agent jobs persist progress, internal chat, and reasoning summary", async () => {
   const { db, atlas } = await fixture();
-  const queued = atlas.queueDevelopmentChat("Review milestone M1");
+  const queued = atlas.queueAdaCodingAgent("Review milestone M1");
   const job = await waitForTerminal(db, queued.id);
   assert.equal(job.status, "completed");
   assert.equal(job.progress, 100);
   const result = JSON.parse(job.result_json);
-  assert.match(result.reasoningSummary, /roadmap/);
-  assert.equal(db.all("SELECT * FROM messages").length, 2);
+  assert.match(result.reasoningSummary, /verified repository contents/);
+  assert.equal(db.all("SELECT * FROM messages").length, 4);
   db.close();
 });
 

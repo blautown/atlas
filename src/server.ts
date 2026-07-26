@@ -48,15 +48,20 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
     send(response, 202, await atlas.deploy(await body(request)));
     return true;
   }
+  if (request.method === "POST" && url.pathname === "/api/ada/chat") {
+    const input = await body(request);
+    send(response, 202, atlas.queueAdaChat(input.message));
+    return true;
+  }
   const managerMatch = url.pathname.match(/^\/api\/managers\/([^/]+)\/chat$/);
   if (request.method === "POST" && managerMatch?.[1]) {
     const input = await body(request);
     send(response, 202, atlas.queueManagerChat(managerMatch[1], input.message));
     return true;
   }
-  if (request.method === "POST" && url.pathname === "/api/development/chat") {
+  if (request.method === "POST" && url.pathname === "/api/ada/coding-agent") {
     const input = await body(request);
-    send(response, 202, atlas.queueDevelopmentChat(input.message));
+    send(response, 202, atlas.queueAdaCodingAgent(input.message));
     return true;
   }
   const approvalMatch = url.pathname.match(/^\/api\/approvals\/([^/]+)$/);

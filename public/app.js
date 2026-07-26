@@ -1,5 +1,5 @@
 let state = null;
-let activeChat = { kind: "development", ownerId: "development" };
+let activeChat = { kind: "ada", ownerId: "ada" };
 let jobPoll = null;
 let activeView = "overview";
 
@@ -98,8 +98,10 @@ function initials(value) {
 }
 
 function renderChatDock() {
-  const devJob = latestJob("development");
-  const buttons = [`<button class="chat-launcher ${activeChat.kind === "development" ? "selected" : ""}" data-chat-kind="development" data-owner="development" aria-label="Open Development Assistant" title="Development Assistant"><span>DA</span>${jobSignal(devJob)}</button>`];
+  const adaJob = latestJob("ada");
+  const buttons = [
+    `<button class="chat-launcher primary ${activeChat.kind === "ada" ? "selected" : ""}" data-chat-kind="ada" data-owner="ada" aria-label="Open ADA" title="Your ATLAS Digital Assistant"><span>ADA</span>${jobSignal(adaJob)}</button>`
+  ];
   for (const manager of state.managers) {
     const job = latestJob("manager", manager.id);
     buttons.push(`<button class="chat-launcher ${activeChat.kind === "manager" && activeChat.ownerId === manager.id ? "selected" : ""}" data-chat-kind="manager" data-owner="${esc(manager.id)}" aria-label="Open ${esc(manager.name)}" title="${esc(manager.name)}"><span>${esc(initials(manager.name))}</span>${jobSignal(job, manager.status)}</button>`);
@@ -114,7 +116,7 @@ function jobSignal(job, fallback = "ready") {
 }
 
 function chatDetails() {
-  if (activeChat.kind === "development") return { title: "Development Assistant", subtitle: "Builds and maintains ATLAS", avatar: "DA", placeholder: "Ask for a platform change or discuss the roadmap…", hint: "Repository changes remain approval-controlled." };
+  if (activeChat.kind === "ada") return { title: "ADA", subtitle: "Your guide across ATLAS", avatar: "ADA", placeholder: "What would you like to understand or accomplish?", hint: "ADA can explain live state and prepare governed handoffs." };
   const manager = state.managers.find((item) => item.id === activeChat.ownerId);
   const env = state.environments.find((item) => item.manager_id === activeChat.ownerId);
   return { title: manager?.name ?? "AI Manager", subtitle: `${env?.name ?? "Environment"} · ${manager?.status ?? "unknown"}`, avatar: initials(manager?.name), placeholder: "Describe a workflow, task, or expected outcome…", hint: "This Manager supervises all agents in its environment." };
@@ -128,8 +130,10 @@ function renderMessenger() {
   $("#messengerSubtitle").textContent = details.subtitle;
   $("#messengerForm textarea").placeholder = details.placeholder;
   $("#composerHint").textContent = details.hint;
-  const messages = state.messages.filter((message) => message.conversation_kind === activeChat.kind && (activeChat.kind === "development" || message.owner_id === activeChat.ownerId));
-  $("#messengerMessages").innerHTML = messages.length ? messages.map(renderMessage).join("") : empty(activeChat.kind === "development" ? "Start building with ATLAS" : "Start a Manager conversation", activeChat.kind === "development" ? "Discuss the roadmap or request a platform improvement." : "Define work in plain English; the Manager will plan and supervise it.");
+  const messages = state.messages.filter((message) => message.conversation_kind === activeChat.kind && (activeChat.kind !== "manager" || message.owner_id === activeChat.ownerId));
+  const emptyTitle = activeChat.kind === "ada" ? "Meet your ADA" : "Start a Manager conversation";
+  const emptyDetail = activeChat.kind === "ada" ? "Ask about ATLAS, your environments, or what to do next." : "Define work in plain English; the Manager will plan and supervise it.";
+  $("#messengerMessages").innerHTML = messages.length ? messages.map(renderMessage).join("") : empty(emptyTitle, emptyDetail);
   const job = latestJob(activeChat.kind, activeChat.kind === "manager" ? activeChat.ownerId : null);
   $("#messengerContext").innerHTML = renderJob(job);
   requestAnimationFrame(() => { const el = $("#messengerMessages"); el.scrollTop = el.scrollHeight; });
@@ -149,14 +153,15 @@ function bindChatLaunchers() {
 }
 
 function renderMilestoneProgress(milestoneId) {
-  const job = latestJob("development", null, milestoneId);
+  const job = latestJob("ada", null, milestoneId);
   if (!job) return "";
   const stateLabel = job.frozen ? "No heartbeat — may need attention" : job.stage;
   return `<div class="work-status ${job.frozen ? "frozen" : ""}"><div class="item-head"><span>${esc(stateLabel)}</span>${badge(job.status)}</div><div class="progress"><span style="width:${Number(job.progress)}%"></span></div><small>${Number(job.progress)}% · updated ${fmt(job.updated_at)}</small></div>`;
 }
 
 function renderMessage(message) {
-  return `<div class="message ${esc(message.role)}"><div class="message-meta"><strong>${message.role === "user" ? "You" : activeChat.kind === "development" ? "Development Assistant" : "AI Manager"}</strong><small>${fmt(message.created_at)}</small></div><p>${esc(message.content)}</p></div>`;
+  const speaker = message.role === "user" ? "You" : activeChat.kind === "ada" ? "ADA" : "AI Manager";
+  return `<div class="message ${esc(message.role)}"><div class="message-meta"><strong>${speaker}</strong><small>${fmt(message.created_at)}</small></div><p>${esc(message.content)}</p></div>`;
 }
 
 function renderJob(job) {
@@ -168,20 +173,35 @@ function renderJob(job) {
     <div class="progress"><span style="width:${Number(job.progress)}%"></span></div>
     ${result.reasoningSummary ? `<details><summary>Reasoning summary</summary><p>${esc(result.reasoningSummary)}</p></details>` : ""}
     ${result.updates?.length ? `<details><summary>Work updates (${result.updates.length})</summary><ul>${result.updates.map((update) => `<li>${esc(update)}</li>`).join("")}</ul></details>` : ""}
+    ${result.handoff ? `<div class="handoff"><small>Recommended handoff</small><strong>${esc(result.handoff.title)}</strong><button data-handoff-job="${esc(job.id)}">Prepare handoff</button></div>` : ""}
     ${job.error ? `<p class="error-text">${esc(job.error)}</p>` : ""}
   </div>`;
 }
 
 function bindDynamic() {
   bindChatLaunchers();
+  document.querySelectorAll("[data-handoff-job]").forEach((button) => button.onclick = async () => {
+    const job = state.jobs.find((item) => item.id === button.dataset.handoffJob);
+    const handoff = job?.result?.handoff;
+    if (!handoff) return notice("The handoff is no longer available.", true);
+    if (handoff.type === "development") {
+      await sendCodingAgent(handoff.prompt);
+      return;
+    }
+    openChat("manager", handoff.ownerId);
+    $("#messengerForm textarea").value = handoff.prompt;
+    $("#messengerForm textarea").focus();
+    notice("Manager handoff prepared for your review. Send it when ready.");
+  });
   document.querySelectorAll("[data-roadmap]").forEach((button) => button.onclick = async () => {
     const milestone = state.roadmap.milestones.find((item) => item.id === button.dataset.roadmap);
     if (!milestone) return notice("Roadmap milestone not found.", true);
     const prompt = button.dataset.roadmapAction === "implement"
       ? `Begin roadmap milestone ${milestone.id}: ${milestone.title}. Inspect the repository before changing it. Implement the smallest complete vertical slice that advances its objective and acceptance criteria. Preserve system integrity, request scoped approvals for writes and commands, run the full verification suite, and report evidence, risks, and remaining work. Do not mark the milestone complete unless every acceptance criterion is demonstrated.`
       : `Review roadmap milestone ${milestone.id}: ${milestone.title}. Explain its purpose, dependencies, deliverables, acceptance criteria, current repository readiness, and the safest next implementation slice. Do not make changes in this discussion.`;
-    openChat("development", "development");
-    await sendChat(prompt);
+    openChat("ada", "ada");
+    if (button.dataset.roadmapAction === "implement") await sendCodingAgent(prompt);
+    else await sendChat(prompt);
   });
   document.querySelectorAll("[data-approval]").forEach((button) => button.onclick = async () => {
     try {
@@ -229,9 +249,20 @@ async function submit(form, url, success) {
   } catch (error) { notice(error.message, true); }
 }
 
+async function sendCodingAgent(message) {
+  try {
+    openChat("ada", "ada");
+    const job = await request("/api/ada/coding-agent", { method: "POST", body: JSON.stringify({ message }) });
+    await refresh();
+    openChat("ada", "ada");
+    watchJob(job.id);
+    notice("ADA delegated the request to its coding agent.");
+  } catch (error) { notice(error.message, true); }
+}
+
 async function sendChat(message) {
   try {
-    const endpoint = activeChat.kind === "development" ? "/api/development/chat" : `/api/managers/${activeChat.ownerId}/chat`;
+    const endpoint = activeChat.kind === "ada" ? "/api/ada/chat" : `/api/managers/${activeChat.ownerId}/chat`;
     const job = await request(endpoint, { method: "POST", body: JSON.stringify({ message }) });
     await refresh();
     openChat(activeChat.kind, activeChat.ownerId);
@@ -242,7 +273,8 @@ async function sendChat(message) {
 document.querySelectorAll(".nav").forEach((button) => button.onclick = () => showView(button.dataset.view));
 document.querySelectorAll("[data-go]").forEach((button) => button.onclick = () => showView(button.dataset.go));
 $("#refresh").onclick = () => refresh().then(() => notice("ATLAS state refreshed.")).catch((error) => notice(error.message, true));
-$("#openDevChat").onclick = () => openChat("development", "development");
+$("#openAdaChat").onclick = () => openChat("ada", "ada");
+$("#openDevChat").onclick = () => openChat("ada", "ada");
 $("#minimiseMessenger").onclick = () => $("#messenger").classList.add("hidden");
 $("#closeMessenger").onclick = () => $("#messenger").classList.add("hidden");
 $("#environmentForm").onsubmit = (event) => { event.preventDefault(); submit(event.currentTarget, "/api/environments", "Environment connected and Manager assigned."); };

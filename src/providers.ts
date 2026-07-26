@@ -33,7 +33,10 @@ export class ResponsesApiProvider implements ModelProvider {
     const body: Record<string, unknown> = {
       model: this.model,
       instructions: request.system,
-      input: request.input
+      input: request.input,
+      tools: [],
+      tool_choice: "none",
+      max_output_tokens: Math.max(256, Number(process.env.ATLAS_MAX_OUTPUT_TOKENS ?? 1600))
     };
     if (request.jsonSchema) {
       body.text = {
@@ -45,17 +48,39 @@ export class ResponsesApiProvider implements ModelProvider {
         }
       };
     }
-    const response = await fetch(`${this.baseUrl}/responses`, {
+    const send = (payload: Record<string, unknown>) => fetch(`${this.baseUrl}/responses`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         "Content-Type": "application/json",
         ...this.extraHeaders
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify(payload)
     });
+    let response = await send(body);
+    if (response.status === 429) {
+      const rateDetail = (await response.text()).slice(0, 500);
+      const waitSeconds = Number(rateDetail.match(/try again in ([\d.]+)s/i)?.[1] ?? NaN);
+      if (Number.isFinite(waitSeconds) && waitSeconds >= 0 && waitSeconds <= 60) {
+        await new Promise((resolve) => setTimeout(resolve, Math.ceil(waitSeconds * 1000) + 250));
+        response = await send(body);
+      } else {
+        throw new Error(`${this.name} request failed (429): ${rateDetail}`);
+      }
+    }
     if (!response.ok) {
-      const detail = (await response.text()).slice(0, 500);
+      let detail = (await response.text()).slice(0, 500);
+      const retryableStructuredFailure = response.status === 400
+        && (detail.includes("tool_use_failed") || detail.includes("json_validate_failed"));
+      if (retryableStructuredFailure) {
+        response = await send({
+          ...body,
+          instructions: `No tools, functions, MCP servers, browsers, terminals, or repository APIs are available in this request. Never emit or invoke a tool call. Use only the context already supplied in the input. Express every proposed operation only as ordinary JSON fields matching the required response schema. The JSON must validate exactly: include every required property on every object, using null for required nullable fields rather than omitting them.\n\n${request.system}`,
+          input: `All repository and platform context available to you is included below as data. Do not request additional inspection. Return only the required structured response.\n\n${request.input}`
+        });
+        if (response.ok) return extractOutput(await response.json());
+        detail = (await response.text()).slice(0, 500);
+      }
       throw new Error(`${this.name} request failed (${response.status}): ${detail}`);
     }
     return extractOutput(await response.json());
