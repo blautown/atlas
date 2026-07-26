@@ -2,7 +2,7 @@ import { createHash, randomBytes, verify } from "node:crypto";
 import type { AtlasDatabase } from "./db.js";import { id,json,now,parseJson } from "./util.js";
 type Row=Record<string,any>;export type BrowserAuth={sessionId:string;timestamp:string;nonce:string;signature:string};
 const hash=(v:string)=>createHash("sha256").update(v).digest("hex");const canonical=(a:Omit<BrowserAuth,"signature">,body:unknown)=>[a.sessionId,a.timestamp,a.nonce,hash(json(body??{}))].join("\n");
-const allowed=new Set(["inspect","screenshot","click","type","select","scroll","navigate","downloads","errors"]);
+const allowed=new Set(["inspect","screenshot","click","type","select","scroll","navigate","downloads","errors","start_recording","stop_recording","rehearse"]);
 function redact(value:any):any{if(Array.isArray(value))return value.map(redact);if(value&&typeof value==="object")return Object.fromEntries(Object.entries(value).map(([k,v])=>[/password|cookie|authorization|token|secret/i.test(k)?k:k,/password|cookie|authorization|token|secret/i.test(k)?"[REDACTED]":redact(v)]));return value;}
 export class BrowserBridgeService{
  constructor(private readonly db:AtlasDatabase){}

@@ -127,7 +127,7 @@
     {
       "id": "M5",
       "title": "Task observation and workflow learning",
-      "status": "planned",
+      "status": "ready_for_validation",
       "objective": "Let a Manager observe the user completing a task, infer a reusable workflow, and report every required asset and permission.",
       "deliverables": [
         "Teach by observation and hybrid instruction-plus-observation modes",
@@ -144,6 +144,16 @@
         "The Manager produces an editable workflow and requirements report.",
         "ATLAS replays the workflow in rehearsal mode and identifies deviations.",
         "The workflow cannot become autonomous until the user approves it."
+      ],
+      "completionEvidence": [
+        "Dashboard recording requires explicit consent and scopes capture to one connected approved tab.",
+        "The extension captures semantic click, type, select, submit, and scroll actions while excluding unrelated tabs, clipboard, notifications, cookies, and sensitive values.",
+        "The Manager service infers an editable ordered workflow graph with recovery rules and an asset, account, secret, tool, capability, and permission report.",
+        "Stopping waits for the extension final action upload before building the draft, preventing lost tail events.",
+        "Safe rehearsal records selector and URL-origin deviations; autonomy approval is unavailable until rehearsal completes.",
+        "Approval creates a disabled workflow, so autonomous activation remains a separate deliberate user action.",
+        "Twenty-five tests, type checking, linting, production build, extension syntax validation, HTTP smoke, and a live dashboard render pass.",
+        "Physical recording and rehearsal remain the final acceptance validation after reloading the unpacked extension."
       ]
     },
     {

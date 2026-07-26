@@ -6,6 +6,7 @@ import { Atlas } from "./atlas.js";
 import { AtlasDatabase } from "./db.js";
 import { ConnectorService, type DeviceAuth } from "./connector.js";
 import { BrowserBridgeService, type BrowserAuth } from "./browser-bridge.js";
+import { ObservationService } from "./observation.js";
 import { createModelProvider, LocalExecutionBackend } from "./providers.js";
 import { SettingsService } from "./settings.js";
 import { safeError } from "./util.js";
@@ -23,6 +24,7 @@ const execution = new LocalExecutionBackend();
 export const atlas = new Atlas(database, initialOperationsModel, execution, root, undefined, initialAdaModel);
 export const connector = new ConnectorService(database, root);
 export const browserBridge = new BrowserBridgeService(database);
+export const observations = new ObservationService(database, browserBridge);
 
 async function body(request: IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
@@ -52,10 +54,18 @@ function send(response: ServerResponse, status: number, value: unknown): void {
 
 async function api(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
   if (!url.pathname.startsWith("/api/")) return false;
+  if(request.method==="POST"&&url.pathname==="/api/observations"){send(response,201,observations.start(await body(request)));return true;}
+  const observationStop=url.pathname.match(/^\/api\/observations\/([^/]+)\/stop$/);
+  if(request.method==="POST"&&observationStop?.[1]){send(response,200,observations.stop(observationStop[1]));return true;}
+  const draftEdit=url.pathname.match(/^\/api\/workflow-drafts\/([^/]+)$/);
+  if(request.method==="PATCH"&&draftEdit?.[1]){send(response,200,observations.updateDraft(draftEdit[1],await body(request)));return true;}
+  const draftAction=url.pathname.match(/^\/api\/workflow-drafts\/([^/]+)\/(rehearse|approval)$/);
+  if(request.method==="POST"&&draftAction?.[1]){await body(request);send(response,200,draftAction[2]==="rehearse"?observations.rehearse(draftAction[1]):observations.requestApproval(draftAction[1]));return true;}
+  if(request.method==="GET"&&url.pathname==="/api/observations"){send(response,200,observations.state());return true;}
   if(request.method==="POST"&&url.pathname==="/api/browser/pairings"){send(response,201,browserBridge.createPairing(await body(request)));return true;}
   if(request.method==="POST"&&url.pathname==="/api/browser/pair"){send(response,201,browserBridge.pair(await body(request)));return true;}
   if(request.method==="POST"&&url.pathname==="/api/browser/poll"){await body(request);send(response,200,browserBridge.poll(browserAuth(request)));return true;}
-  if(request.method==="POST"&&url.pathname==="/api/browser/events"){const input=await body(request);send(response,200,browserBridge.events(browserAuth(request),input));return true;}
+  if(request.method==="POST"&&url.pathname==="/api/browser/events"){const input=await body(request),auth=browserAuth(request);const result=browserBridge.events(auth,input);observations.ingest(auth.sessionId,input.events??[]);observations.handleBrowserResults(input.events??[]);send(response,200,result);return true;}
   if(request.method==="POST"&&url.pathname==="/api/browser/disconnect"){await body(request);const auth=browserAuth(request);browserBridge.authenticate(auth,{});send(response,200,browserBridge.disconnect(auth.sessionId));return true;}
   if(request.method==="POST"&&url.pathname==="/api/browser/commands"){send(response,202,browserBridge.queue(await body(request)));return true;}
   const browserRevoke=url.pathname.match(/^\/api\/browser\/sessions\/([^/]+)\/revoke$/);
@@ -107,7 +117,7 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
     return true;
   }
   if (request.method === "GET" && url.pathname === "/api/state") {
-    const base=atlas.state(); send(response, 200, { ...base, providers: { ...(base.providers as Record<string, unknown>), browser: "extension-bridge" }, connector: connector.state(), browser: browserBridge.state() });
+    const base=atlas.state(); send(response, 200, { ...base, providers: { ...(base.providers as Record<string, unknown>), browser: "extension-bridge" }, connector: connector.state(), browser: browserBridge.state(), learning: observations.state() });
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/environments") {
@@ -161,7 +171,10 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
   const approvalMatch = url.pathname.match(/^\/api\/approvals\/([^/]+)$/);
   if (request.method === "POST" && approvalMatch?.[1]) {
     const input = await body(request);
-    send(response, 200, await atlas.resolveApproval(approvalMatch[1], input.decision));
+    const pendingApproval=database.get<any>("SELECT * FROM approvals WHERE id=?",approvalMatch[1]);
+    const result=await atlas.resolveApproval(approvalMatch[1], input.decision);
+    if(pendingApproval)observations.resolveApproval(pendingApproval,input.decision);
+    send(response, 200, result);
     return true;
   }
   send(response, 404, { error: "API route not found." });
