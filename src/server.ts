@@ -28,6 +28,10 @@ function send(response: ServerResponse, status: number, value: unknown): void {
 
 async function api(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
   if (!url.pathname.startsWith("/api/")) return false;
+  if (request.method === "GET" && url.pathname === "/api/health") {
+    send(response, 200, { status: "ok", service: "atlas", time: new Date().toISOString() });
+    return true;
+  }
   if (request.method === "GET" && url.pathname === "/api/state") {
     send(response, 200, atlas.state());
     return true;

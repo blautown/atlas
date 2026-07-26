@@ -215,9 +215,14 @@ function bindDynamic() {
 function watchJob(jobId) {
   clearInterval(jobPoll);
   jobPoll = setInterval(async () => {
-    await refresh();
-    const job = state.jobs.find((item) => item.id === jobId);
-    if (!job || ["completed", "failed", "waiting_approval", "needs_input"].includes(job.status)) clearInterval(jobPoll);
+    try {
+      await refresh();
+      const job = state.jobs.find((item) => item.id === jobId);
+      if (!job || ["completed", "failed", "waiting_approval", "needs_input"].includes(job.status)) clearInterval(jobPoll);
+    } catch (error) {
+      clearInterval(jobPoll);
+      notice(`Live updates stopped: ${error.message}. Use Refresh to reconnect.`, true);
+    }
   }, 1000);
 }
 

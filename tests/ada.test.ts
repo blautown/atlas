@@ -12,6 +12,7 @@ class AdaModel implements ModelProvider {
   async generate(request: { system: string; input: string }): Promise<string> {
     assert.match(request.system, /single human-facing/);
     assert.match(request.input, /Laptop Manager/);
+    assert.ok(request.input.length < 20_000, `ADA context was not bounded: ${request.input.length} characters`);
     const managerId = request.input.match(/"manager_id":"([^"]+)"/)?.[1] ?? "missing";
     return JSON.stringify({
       reply: "Your laptop is online. I recommend handing this task to its Manager.",
@@ -52,6 +53,18 @@ test("ADA receives live state and persists a user-facing conversation", async ()
   const atlas = new Atlas(db, new AdaModel(), new LocalFake(), root);
   const environment = await atlas.onboardEnvironment({ name: "Laptop", kind: "local" });
   const manager = db.get<any>("SELECT * FROM managers WHERE environment_id=?", environment.id)!;
+  for (let index = 0; index < 24; index++) {
+    db.run(
+      "INSERT INTO agents(id,environment_id,manager_id,name,lifecycle,objective,status,permissions_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+      `agent-${index}`, environment.id, manager.id, `Agent ${index}`, "persistent", "x".repeat(2_000), "ready", "{}", new Date().toISOString()
+    );
+  }
+  for (let index = 0; index < 20; index++) {
+    db.run(
+      "INSERT INTO memories(id,scope_type,scope_id,kind,content,source,confidence,created_at) VALUES(?,?,?,?,?,?,?,?)",
+      `memory-${index}`, "environment", environment.id, "episodic", "y".repeat(2_000), `test:${index}`, 0.8, new Date().toISOString()
+    );
+  }
   const queued = atlas.queueAdaChat("Can you check my disk space?");
   for (let attempt = 0; attempt < 50; attempt++) {
     const job = db.get<any>("SELECT * FROM assistant_jobs WHERE id=?", queued.id)!;

@@ -7,6 +7,18 @@ import { assertInside, id, json, now, parseJson, safeError } from "./util.js";
 
 type Row = Record<string, any>;
 
+function clip(value: unknown, max = 800): string {
+  const text = String(value ?? "");
+  return text.length <= max ? text : `${text.slice(0, max)}…`;
+}
+
+function requiredText(value: unknown, label: string, max = 4_000): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${label} is required.`);
+  const text = value.trim();
+  if (text.length > max) throw new Error(`${label} must be ${max.toLocaleString()} characters or fewer.`);
+  return text;
+}
+
 const managerSchema = {
   type: "object",
   additionalProperties: false,
@@ -175,7 +187,8 @@ export class Atlas {
   }
 
   async onboardEnvironment(input: { name: string; kind: "local" | "cloud"; endpoint?: string }): Promise<Row> {
-    if (!input.name?.trim()) throw new Error("Environment name is required.");
+    const name = requiredText(input.name, "Environment name", 120);
+    if (!["local", "cloud"].includes(input.kind)) throw new Error("Environment kind must be local or cloud.");
     if (input.kind === "cloud" && !input.endpoint?.trim()) throw new Error("Cloud environments require an endpoint.");
     let capabilities: Record<string, unknown>;
     let status = "online";
@@ -196,12 +209,12 @@ export class Atlas {
     this.db.transaction(() => {
       this.db.run(
         "INSERT INTO environments(id,name,kind,endpoint,status,capabilities_json,health_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
-        envId, input.name.trim(), input.kind, input.endpoint ?? null, status, json(capabilities),
+        envId, name, input.kind, input.endpoint ?? null, status, json(capabilities),
         json({ status, workload: 0, recovery: "ready", checkedAt: timestamp }), timestamp, timestamp
       );
       this.db.run(
         "INSERT INTO managers(id,environment_id,name,status,last_heartbeat,created_at) VALUES(?,?,?,?,?,?)",
-        managerId, envId, `${input.name.trim()} Manager`, status === "online" ? "online" : "waiting", timestamp, timestamp
+        managerId, envId, `${name} Manager`, status === "online" ? "online" : "waiting", timestamp, timestamp
       );
     });
     this.audit("system", null, "environment.onboarded", "environment", envId, { managerId, kind: input.kind, status });
@@ -209,12 +222,15 @@ export class Atlas {
   }
 
   createAgent(input: { environmentId: string; name: string; lifecycle: "persistent" | "temporary"; objective: string }): Row {
+    const name = requiredText(input.name, "Agent name", 120);
+    const objective = requiredText(input.objective, "Agent objective");
+    if (!["persistent", "temporary"].includes(input.lifecycle)) throw new Error("Agent lifecycle must be persistent or temporary.");
     const manager = this.db.get<Row>("SELECT * FROM managers WHERE environment_id=?", input.environmentId);
     if (!manager) throw new Error("Environment has no AI Manager.");
     const agentId = id("agt");
     this.db.run(
       "INSERT INTO agents(id,environment_id,manager_id,name,lifecycle,objective,status,permissions_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
-      agentId, input.environmentId, manager.id, input.name, input.lifecycle, input.objective,
+      agentId, input.environmentId, manager.id, name, input.lifecycle, objective,
       input.lifecycle === "persistent" ? "ready" : "provisioned", json({ filesystem: "workspace", network: false }), now()
     );
     this.audit("manager", manager.id, "agent.created", "agent", agentId, { lifecycle: input.lifecycle });
@@ -247,17 +263,32 @@ export class Atlas {
   async adaChat(message: string, report: (progress: number, stage: string) => void = () => {}): Promise<Record<string, unknown>> {
     const conversation = this.ensureConversation("ada", null);
     this.saveMessage(conversation, "user", message);
-    const recent = this.db.all<Row>("SELECT role,content FROM messages WHERE conversation_id=? ORDER BY created_at DESC LIMIT 16", conversation).reverse();
+    const recent = this.db.all<Row>("SELECT role,content FROM messages WHERE conversation_id=? ORDER BY created_at DESC LIMIT 6", conversation).reverse();
     const live = this.state() as any;
     const context = {
       capacity: live.capacity,
-      environments: live.environments,
-      managers: live.managers,
-      agents: live.agents,
-      workflows: live.workflows,
-      runs: live.runs.slice(0, 10),
-      pendingApprovals: live.approvals.filter((approval: Row) => approval.status === "pending"),
-      memories: this.db.all<Row>("SELECT scope_type,scope_id,kind,content,source,confidence,created_at FROM memories ORDER BY created_at DESC LIMIT 30")
+      environments: live.environments.slice(0, 12).map((environment: Row) => ({
+        id: environment.id, name: clip(environment.name, 120), kind: environment.kind, status: environment.status,
+        manager_id: environment.manager_id, manager_name: clip(environment.manager_name, 120), manager_status: environment.manager_status,
+        health: environment.health
+      })),
+      agents: live.agents.slice(0, 8).map((agent: Row) => ({
+        id: agent.id, environment_id: agent.environment_id, manager_id: agent.manager_id, name: clip(agent.name, 120),
+        lifecycle: agent.lifecycle, objective: clip(agent.objective, 400), status: agent.status
+      })),
+      workflows: live.workflows.slice(0, 8).map((workflow: Row) => ({
+        id: workflow.id, environment_id: workflow.environment_id, name: clip(workflow.name, 120),
+        instruction: clip(workflow.instruction, 400), trigger_type: workflow.trigger_type, next_run_at: workflow.next_run_at, enabled: workflow.enabled
+      })),
+      runs: live.runs.slice(0, 5).map((run: Row) => ({
+        id: run.id, environment_id: run.environment_id, objective: clip(run.objective), status: run.status,
+        result: clip(run.result, 600), error: clip(run.error, 300)
+      })),
+      pendingApprovals: live.approvals.filter((approval: Row) => approval.status === "pending").slice(0, 12).map((approval: Row) => ({
+        id: approval.id, kind: approval.kind, title: clip(approval.title, 160), requested_at: approval.requested_at
+      })),
+      memories: this.db.all<Row>("SELECT scope_type,scope_id,kind,content,source,confidence,created_at FROM memories ORDER BY created_at DESC LIMIT 6")
+        .map((memory) => ({ ...memory, content: clip(memory.content, 400), source: clip(memory.source, 160) }))
     };
     const assistantPrompt = await readFile(path.join(this.root, "config", "ada.md"), "utf8")
       .catch(() => readFile(path.join(process.cwd(), "config", "ada.md"), "utf8"));
@@ -265,7 +296,7 @@ export class Atlas {
     report(45, "ADA is interpreting your request");
     const raw = await this.model.generate({
       system: assistantPrompt,
-      input: `Live ATLAS state:\n${json(context)}\n\nRecent ADA conversation:\n${recent.map((item) => `${item.role}: ${item.content}`).join("\n")}\n\nCurrent request:\n${message}`,
+      input: `Live ATLAS state:\n${json(context)}\n\nRecent ADA conversation:\n${recent.map((item) => `${item.role}: ${clip(item.content, 600)}`).join("\n")}\n\nCurrent request:\n${clip(message, 4_000)}`,
       jsonSchema: adaSchema
     });
     report(75, "Validating role boundaries and handoff");
@@ -342,18 +373,19 @@ export class Atlas {
   }
 
   async deploy(input: { environmentId: string; objective: string; workflowId?: string }): Promise<Row> {
+    const objective = requiredText(input.objective, "Task objective");
     const manager = this.db.get<Row>("SELECT * FROM managers WHERE environment_id=?", input.environmentId);
     if (!manager || manager.status !== "online") throw new Error("An online AI Manager is required.");
     const agent = this.createAgent({
       environmentId: input.environmentId,
       name: `Task agent ${new Date().toLocaleTimeString()}`,
       lifecycle: "temporary",
-      objective: input.objective
+      objective
     });
     const runId = id("run");
     this.db.run(
       "INSERT INTO runs(id,workflow_id,environment_id,manager_id,agent_id,objective,status,started_at) VALUES(?,?,?,?,?,?,?,?)",
-      runId, input.workflowId ?? null, input.environmentId, manager.id, agent.id, input.objective, "running", now()
+      runId, input.workflowId ?? null, input.environmentId, manager.id, agent.id, objective, "running", now()
     );
     this.audit("manager", manager.id, "run.started", "run", runId, { agentId: agent.id });
     void this.executeRun(runId);
@@ -468,6 +500,7 @@ export class Atlas {
   }
 
   queueAdaChat(message: string): Row {
+    message = requiredText(message, "Message");
     const conversation = this.ensureConversation("ada", null);
     const job = this.createJob("ada", null, conversation, message);
     void this.runJob(job.id, (report) => this.adaChat(message, report));
@@ -475,6 +508,7 @@ export class Atlas {
   }
 
   queueManagerChat(managerId: string, message: string): Row {
+    message = requiredText(message, "Message");
     const conversation = this.ensureConversation("manager", managerId);
     const job = this.createJob("manager", managerId, conversation, message);
     void this.runJob(job.id, (report) => this.managerChat(managerId, message, report));
@@ -482,6 +516,7 @@ export class Atlas {
   }
 
   queueAdaCodingAgent(message: string): Row {
+    message = requiredText(message, "Development request");
     const adaConversation = this.ensureConversation("ada", null);
     const milestone = message.match(/milestone\s+(M\d+)/i)?.[1]?.toUpperCase() ?? null;
     const job = this.createJob("ada", null, adaConversation, message, milestone);

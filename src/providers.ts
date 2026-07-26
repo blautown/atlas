@@ -15,6 +15,13 @@ function extractOutput(payload: any): string {
   throw new Error("Model provider returned no text output.");
 }
 
+function providerError(name: string, status: number, detail: string): Error {
+  if (status === 401 || status === 403) return new Error(`${name} authentication failed. Check the provider key in ATLAS settings.`);
+  if (status === 413) return new Error(`${name} rejected the request because its context limit was exceeded. ATLAS reduced future context; retry the message.`);
+  if (status === 429) return new Error(`${name} is temporarily rate limited. Wait briefly and retry.`);
+  return new Error(`${name} request failed (${status}): ${detail.slice(0, 300)}`);
+}
+
 export class ResponsesApiProvider implements ModelProvider {
   constructor(
     readonly name: string,
@@ -29,7 +36,7 @@ export class ResponsesApiProvider implements ModelProvider {
     input: string;
     jsonSchema?: Record<string, unknown>;
   }): Promise<string> {
-    if (!this.apiKey) throw new Error("OPENAI_API_KEY is not configured.");
+    if (!this.apiKey) throw new Error(`${this.name.toUpperCase()} API key is not configured.`);
     const body: Record<string, unknown> = {
       model: this.model,
       instructions: request.system,
@@ -65,7 +72,7 @@ export class ResponsesApiProvider implements ModelProvider {
         await new Promise((resolve) => setTimeout(resolve, Math.ceil(waitSeconds * 1000) + 250));
         response = await send(body);
       } else {
-        throw new Error(`${this.name} request failed (429): ${rateDetail}`);
+        throw providerError(this.name, response.status, rateDetail);
       }
     }
     if (!response.ok) {
@@ -81,7 +88,7 @@ export class ResponsesApiProvider implements ModelProvider {
         if (response.ok) return extractOutput(await response.json());
         detail = (await response.text()).slice(0, 500);
       }
-      throw new Error(`${this.name} request failed (${response.status}): ${detail}`);
+      throw providerError(this.name, response.status, detail);
     }
     return extractOutput(await response.json());
   }
