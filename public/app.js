@@ -35,6 +35,14 @@ function latestJob(kind, ownerId, milestoneId) {
   return matches.find((job) => !["completed", "failed"].includes(job.status)) ?? matches[0];
 }
 
+function runActions(run) {
+  const actions = [];
+  if (run.status === "running") actions.push(["pause", "Pause"], ["cancel", "Cancel"]);
+  if (run.status === "paused") actions.push(["resume", "Resume"], ["cancel", "Cancel"]);
+  if (["failed", "cancelled"].includes(run.status)) actions.push(["retry", "Retry"]);
+  return actions.length ? `<div class="actions">${actions.map(([action, label]) => `<button class="secondary" data-run-control="${esc(run.id)}" data-action="${action}">${label}</button>`).join("")}</div>` : "";
+}
+
 function render() {
   const c = state.capacity;
   $("#fleetState").textContent = c.environmentsTotal ? `${c.environmentsOnline} of ${c.environmentsTotal} environments online` : "Ready for first environment";
@@ -63,13 +71,13 @@ function render() {
     ${a.status === "pending" ? `<div class="actions"><button data-approval="${a.id}" data-decision="approved">Approve</button><button class="danger" data-approval="${a.id}" data-decision="rejected">Reject</button></div>` : ""}
   </div>`)) : empty("No approval requests", "Sensitive actions will pause here for your decision.");
 
-  const runItems = state.runs.map((run) => `<div class="item compact"><div class="item-head"><div><strong>${esc(run.objective)}</strong><small>${fmt(run.started_at)} · ${esc(run.result ?? run.error ?? "In progress")}</small></div>${badge(run.status)}</div></div>`);
+  const runItems = state.runs.map((run) => `<div class="item compact"><div class="item-head"><div><strong>${esc(run.objective)}</strong><small>${fmt(run.started_at)} · ${esc(run.result ?? run.error ?? "In progress")}</small></div>${badge(run.status)}</div>${runActions(run)}</div>`);
   $("#runSummary").innerHTML = runItems.length ? list(runItems.slice(0, 5)) : empty("No execution yet", "Deploy a task when you are ready.");
   $("#runList").innerHTML = runItems.length ? list(runItems) : empty("No execution history", "Completed and active task runs will appear here.");
   $("#runCount").textContent = state.runs.length;
 
   $("#agentList").innerHTML = state.agents.length ? list(state.agents.map((agent) => `<div class="item compact"><div class="item-head"><div><strong>${esc(agent.name)}</strong><small>${esc(agent.lifecycle)} · ${esc(agent.objective)}</small></div>${badge(agent.status)}</div></div>`)) : empty("No agents created", "Create a persistent profile or deploy a task agent.");
-  $("#workflowList").innerHTML = state.workflows.length ? list(state.workflows.map((workflow) => `<div class="item"><div class="item-head"><div><strong>${esc(workflow.name)}</strong><small>${esc(workflow.learning_mode)} · ${esc(workflow.trigger_type)} ${esc(workflow.trigger_value ?? "")}</small></div>${badge(workflow.enabled ? "enabled" : "disabled")}</div><p>${esc(workflow.instruction)}</p></div>`)) : empty("No learned workflows", "Teach a Manager with instructions, observation, or both.");
+  $("#workflowList").innerHTML = state.workflows.length ? list(state.workflows.map((workflow) => `<div class="item"><div class="item-head"><div><strong>${esc(workflow.name)}</strong><small>${esc(workflow.learning_mode)} · ${esc(workflow.trigger_type)} ${esc(workflow.trigger_value ?? "")}</small></div>${badge(workflow.enabled ? "enabled" : "disabled")}</div><p>${esc(workflow.instruction)}</p><div class="actions"><button class="secondary" data-workflow-control="${esc(workflow.id)}" data-enabled="${workflow.enabled ? "false" : "true"}">${workflow.enabled ? "Disable" : "Enable"}</button></div></div>`)) : empty("No learned workflows", "Teach a Manager with instructions, observation, or both.");
   $("#agentCount").textContent = state.agents.length;
   $("#workflowCount").textContent = state.workflows.length;
 
@@ -205,6 +213,21 @@ function bindDynamic() {
     if (button.dataset.roadmapAction === "implement") await sendCodingAgent(prompt);
     else await sendChat(prompt);
   });
+  document.querySelectorAll("[data-run-control]").forEach((button) => button.onclick = async () => {
+    try {
+      await request(`/api/runs/${button.dataset.runControl}/control`, { method: "POST", body: JSON.stringify({ action: button.dataset.action }) });
+      notice(`Task ${button.dataset.action} requested.`);
+      await refresh();
+    } catch (error) { notice(error.message, true); }
+  });
+  document.querySelectorAll("[data-workflow-control]").forEach((button) => button.onclick = async () => {
+    try {
+      const enabled = button.dataset.enabled === "true";
+      await request(`/api/workflows/${button.dataset.workflowControl}/control`, { method: "POST", body: JSON.stringify({ enabled }) });
+      notice(`Workflow ${enabled ? "enabled" : "disabled"}.`);
+      await refresh();
+    } catch (error) { notice(error.message, true); }
+  });
   document.querySelectorAll("[data-approval]").forEach((button) => button.onclick = async () => {
     try {
       await request(`/api/approvals/${button.dataset.approval}`, { method: "POST", body: JSON.stringify({ decision: button.dataset.decision }) });
@@ -287,6 +310,15 @@ $("#closeMessenger").onclick = () => $("#messenger").classList.add("hidden");
 $("#environmentForm").onsubmit = (event) => { event.preventDefault(); submit(event.currentTarget, "/api/environments", "Environment connected and Manager assigned."); };
 $("#agentForm").onsubmit = (event) => { event.preventDefault(); submit(event.currentTarget, "/api/agents", "Persistent agent created."); };
 $("#runForm").onsubmit = (event) => { event.preventDefault(); submit(event.currentTarget, "/api/runs", "Temporary agent deployed through its Manager."); };
+$("#runDiskSpace").onclick = async () => {
+  const environmentId = $("#runEnvironment").value;
+  if (!environmentId) return notice("Connect an environment first.", true);
+  try {
+    await request("/api/runs/disk-space", { method: "POST", body: JSON.stringify({ environmentId }) });
+    notice("Manager deployed a permission-scoped disk inspection agent.");
+    await refresh();
+  } catch (error) { notice(error.message, true); }
+};
 $("#messengerForm").onsubmit = async (event) => {
   event.preventDefault();
   const data = formObject(event.currentTarget);

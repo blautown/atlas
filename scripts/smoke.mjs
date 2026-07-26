@@ -26,7 +26,27 @@ try {
   const state = await fetch(`http://127.0.0.1:${port}/api/state`).then((response) => response.json());
   const managers = state.managers.filter((manager) => manager.environment_id === environment.id);
   if (managers.length !== 1) throw new Error(`Expected one manager, found ${managers.length}`);
-  console.log("Smoke test passed: dashboard API, environment onboarding, and unique Manager assignment.");
+  const diskResponse = await fetch(`http://127.0.0.1:${port}/api/runs/disk-space`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ environmentId: environment.id })
+  });
+  if (!diskResponse.ok) throw new Error(await diskResponse.text());
+  const diskRun = await diskResponse.json();
+  let completedState;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    completedState = await fetch(`http://127.0.0.1:${port}/api/state`).then((response) => response.json());
+    const current = completedState.runs.find((run) => run.id === diskRun.id);
+    if (current?.status === "completed") break;
+    if (current?.status === "failed") throw new Error(current.error);
+    await delay(100);
+  }
+  const completedRun = completedState.runs.find((run) => run.id === diskRun.id);
+  const agent = completedState.agents.find((item) => item.id === completedRun?.agent_id);
+  const artifact = completedState.runArtifacts.find((item) => item.run_id === diskRun.id);
+  if (completedRun?.status !== "completed") throw new Error("Disk-space run did not complete.");
+  if (agent?.status !== "retired") throw new Error("Temporary disk agent was not retired.");
+  if (JSON.parse(agent.permissions_json).tools?.[0] !== "system.disk.read") throw new Error("Disk agent permission scope was incorrect.");
+  if (artifact?.verified !== 1 || !(artifact.content?.totalBytes > 0)) throw new Error("Verified disk evidence was not captured.");
+  console.log("Smoke test passed: onboarding, unique Manager, real disk evidence, verification, and temporary-agent retirement.");
 } finally {
   child.kill();
 }

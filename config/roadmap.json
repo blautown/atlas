@@ -14,7 +14,7 @@
     {
       "id": "M1",
       "title": "Complete the real local execution loop",
-      "status": "next",
+      "status": "completed",
       "objective": "Make a Manager-defined workflow execute real, permissioned tools on the connected laptop and produce verified results.",
       "deliverables": [
         "Typed environment tool registry and execution broker",
@@ -30,6 +30,13 @@
         "The Manager deploys a temporary agent with only the required system-information permission.",
         "The agent retrieves real disk-space values through the tool broker.",
         "The Manager verifies the values, reports the result, logs the run, and retires the agent."
+      ],
+      "completionEvidence": [
+        "Dashboard disk-space action invokes the typed local tool broker.",
+        "Temporary agent receives only system.disk.read permission.",
+        "Real disk values are independently reconciled and stored as a verified artifact.",
+        "Run lifecycle supports pause, resume, cancel, one bounded retry, timeout failure, and workflow enable/disable.",
+        "Manager audit records completion and temporary-agent retirement."
       ]
     },
     {

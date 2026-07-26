@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { AtlasDatabase } from "./db.js";
 import type { ExecutionBackend, ModelProvider } from "./types.js";
+import { LocalToolBroker, type AtlasPermission, type ToolBroker } from "./tool-broker.js";
 import { assertInside, id, json, now, parseJson, safeError } from "./util.js";
 
 type Row = Record<string, any>;
@@ -10,6 +11,18 @@ type Row = Record<string, any>;
 function clip(value: unknown, max = 800): string {
   const text = String(value ?? "");
   return text.length <= max ? text : `${text.slice(0, max)}…`;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new Error(`Execution timed out after ${timeoutMs}ms.`)), timeoutMs); })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function requiredText(value: unknown, label: string, max = 4_000): string {
@@ -135,7 +148,8 @@ export class Atlas {
     readonly db: AtlasDatabase,
     readonly model: ModelProvider,
     readonly execution: ExecutionBackend,
-    readonly root = process.cwd()
+    readonly root = process.cwd(),
+    readonly tools: ToolBroker = new LocalToolBroker()
   ) {}
 
   audit(actorType: string, actorId: string | null, action: string, entityType: string, entityId: string | null, detail: unknown = {}): void {
@@ -175,6 +189,8 @@ export class Atlas {
       agents: this.db.all("SELECT * FROM agents ORDER BY created_at DESC"),
       workflows: this.db.all("SELECT * FROM workflows ORDER BY created_at DESC"),
       runs,
+      runArtifacts: this.db.all<Row>("SELECT * FROM run_artifacts ORDER BY created_at DESC LIMIT 50").map((artifact: Row) => ({ ...artifact, content: parseJson(artifact.content_json) })),
+      runEvents: this.db.all<Row>("SELECT * FROM run_events ORDER BY id DESC LIMIT 100").map((event: Row) => ({ ...event, detail: parseJson(event.detail_json) })),
       approvals: this.db.all("SELECT * FROM approvals ORDER BY requested_at DESC LIMIT 30"),
       audit: this.db.all("SELECT * FROM audit_events ORDER BY created_at DESC LIMIT 50"),
       roadmap: this.roadmap(),
@@ -221,7 +237,7 @@ export class Atlas {
     return this.db.get<Row>("SELECT * FROM environments WHERE id=?", envId)!;
   }
 
-  createAgent(input: { environmentId: string; name: string; lifecycle: "persistent" | "temporary"; objective: string }): Row {
+  createAgent(input: { environmentId: string; name: string; lifecycle: "persistent" | "temporary"; objective: string; permissions?: AtlasPermission[] }): Row {
     const name = requiredText(input.name, "Agent name", 120);
     const objective = requiredText(input.objective, "Agent objective");
     if (!["persistent", "temporary"].includes(input.lifecycle)) throw new Error("Agent lifecycle must be persistent or temporary.");
@@ -231,7 +247,7 @@ export class Atlas {
     this.db.run(
       "INSERT INTO agents(id,environment_id,manager_id,name,lifecycle,objective,status,permissions_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
       agentId, input.environmentId, manager.id, name, input.lifecycle, objective,
-      input.lifecycle === "persistent" ? "ready" : "provisioned", json({ filesystem: "workspace", network: false }), now()
+      input.lifecycle === "persistent" ? "ready" : "provisioned", json({ tools: input.permissions ?? [], filesystem: "none", network: false }), now()
     );
     this.audit("manager", manager.id, "agent.created", "agent", agentId, { lifecycle: input.lifecycle });
     return this.db.get<Row>("SELECT * FROM agents WHERE id=?", agentId)!;
@@ -373,21 +389,92 @@ export class Atlas {
     };
   }
 
+  async deployDiskSpace(input: { environmentId: string }): Promise<Row> {
+    const manager = this.db.get<Row>("SELECT * FROM managers WHERE environment_id=?", input.environmentId);
+    if (!manager || manager.status !== "online") throw new Error("An online AI Manager is required.");
+    const permissions: AtlasPermission[] = ["system.disk.read"];
+    const agent = this.createAgent({
+      environmentId: input.environmentId,
+      name: `Disk inspection ${new Date().toLocaleTimeString()}`,
+      lifecycle: "temporary",
+      objective: "Retrieve and report real filesystem capacity through the ATLAS tool broker.",
+      permissions
+    });
+    const runId = id("run");
+    const timestamp = now();
+    this.db.transaction(() => {
+      this.db.run(
+        "INSERT INTO runs(id,environment_id,manager_id,agent_id,objective,status,started_at) VALUES(?,?,?,?,?,'running',?)",
+        runId, input.environmentId, manager.id, agent.id, "Inspect real disk space and return independently verified values.", timestamp
+      );
+      this.db.run(
+        "INSERT INTO run_controls(run_id,state,permissions_json,retry_count,max_retries,timeout_ms,updated_at) VALUES(?,?,?,?,?,?,?)",
+        runId, "running", json(permissions), 0, 1, 30_000, timestamp
+      );
+      this.db.run("INSERT INTO run_events(run_id,kind,detail_json,created_at) VALUES(?,?,?,?)", runId, "agent.deployed", json({ agentId: agent.id, permissions }), timestamp);
+    });
+    this.audit("manager", manager.id, "run.started", "run", runId, { agentId: agent.id, tool: "system.disk_space", permissions });
+    void this.executeDiskSpaceRun(runId);
+    return this.db.get<Row>("SELECT * FROM runs WHERE id=?", runId)!;
+  }
+
+  private async executeDiskSpaceRun(runId: string): Promise<void> {
+    const run = this.db.get<Row>("SELECT * FROM runs WHERE id=?", runId);
+    const control = this.db.get<Row>("SELECT * FROM run_controls WHERE run_id=?", runId);
+    if (!run || !control || control.state !== "running") return;
+    const permissions = parseJson<AtlasPermission[]>(control.permissions_json);
+    try {
+      const evidence = await withTimeout(this.tools.invoke("system.disk_space", {}, {
+        environmentId: run.environment_id, managerId: run.manager_id, agentId: run.agent_id, permissions
+      }), control.timeout_ms);
+      const currentState = this.db.get<Row>("SELECT state FROM run_controls WHERE run_id=?", runId)?.state;
+      if (currentState !== "running") return;
+      this.db.run("INSERT INTO run_events(run_id,kind,detail_json,created_at) VALUES(?,?,?,?)", runId, "tool.completed", json({ tool: "system.disk_space" }), now());
+      const verified = Number.isFinite(evidence.totalBytes) && evidence.totalBytes > 0
+        && evidence.availableBytes >= 0 && evidence.availableBytes <= evidence.totalBytes
+        && evidence.usedBytes === evidence.totalBytes - evidence.availableBytes
+        && evidence.usedPercent >= 0 && evidence.usedPercent <= 100;
+      if (!verified) throw new Error("Disk-space evidence failed independent verification.");
+      const verification = { verified: true, checks: ["positive total", "available within total", "used value reconciles", "percentage within range"], verifiedAt: now() };
+      const gib = (bytes: number) => Number((bytes / 1024 ** 3).toFixed(2));
+      const result = `Disk ${evidence.filesystem}: ${gib(evidence.usedBytes)} GiB used of ${gib(evidence.totalBytes)} GiB (${evidence.usedPercent}%), ${gib(evidence.availableBytes)} GiB available. Verified from ATLAS system.disk_space evidence at ${evidence.measuredAt}.`;
+      this.db.transaction(() => {
+        this.db.run("INSERT INTO run_artifacts(id,run_id,kind,name,content_json,verified,created_at) VALUES(?,?,?,?,?,1,?)", id("artifact"), runId, "evidence", "disk-space.json", json(evidence), now());
+        this.db.run("UPDATE run_controls SET state='completed',verification_json=?,updated_at=? WHERE run_id=?", json(verification), now(), runId);
+        this.db.run("UPDATE runs SET status='completed',result=?,error=NULL,completed_at=? WHERE id=?", result, now(), runId);
+        this.db.run("UPDATE agents SET status='retired',retired_at=? WHERE id=? AND lifecycle='temporary'", now(), run.agent_id);
+        this.db.run("INSERT INTO run_events(run_id,kind,detail_json,created_at) VALUES(?,?,?,?)", runId, "manager.verified", json(verification), now());
+      });
+      this.audit("manager", run.manager_id, "run.completed", "run", runId, { verified: true, artifact: "disk-space.json", temporaryAgentRetired: true });
+    } catch (error) {
+      const currentState = this.db.get<Row>("SELECT state FROM run_controls WHERE run_id=?", runId)?.state;
+      if (["paused", "cancelled"].includes(currentState)) return;
+      this.failRun(run, error);
+    }
+  }
+
+  private failRun(run: Row, error: unknown): void {
+    this.db.transaction(() => {
+      this.db.run("UPDATE run_controls SET state='failed',updated_at=? WHERE run_id=?", now(), run.id);
+      this.db.run("UPDATE runs SET status='failed',error=?,completed_at=? WHERE id=?", safeError(error), now(), run.id);
+      this.db.run("UPDATE agents SET status='retired',retired_at=? WHERE id=? AND lifecycle='temporary'", now(), run.agent_id);
+      this.db.run("INSERT INTO run_events(run_id,kind,detail_json,created_at) VALUES(?,?,?,?)", run.id, "run.failed", json({ error: safeError(error) }), now());
+    });
+    this.audit("manager", run.manager_id, "run.failed", "run", run.id, { error: safeError(error), temporaryAgentRetired: true });
+  }
+
   async deploy(input: { environmentId: string; objective: string; workflowId?: string }): Promise<Row> {
     const objective = requiredText(input.objective, "Task objective");
     const manager = this.db.get<Row>("SELECT * FROM managers WHERE environment_id=?", input.environmentId);
     if (!manager || manager.status !== "online") throw new Error("An online AI Manager is required.");
-    const agent = this.createAgent({
-      environmentId: input.environmentId,
-      name: `Task agent ${new Date().toLocaleTimeString()}`,
-      lifecycle: "temporary",
-      objective
-    });
+    const agent = this.createAgent({ environmentId: input.environmentId, name: `Task agent ${new Date().toLocaleTimeString()}`, lifecycle: "temporary", objective });
     const runId = id("run");
-    this.db.run(
-      "INSERT INTO runs(id,workflow_id,environment_id,manager_id,agent_id,objective,status,started_at) VALUES(?,?,?,?,?,?,?,?)",
-      runId, input.workflowId ?? null, input.environmentId, manager.id, agent.id, objective, "running", now()
-    );
+    const timestamp = now();
+    this.db.transaction(() => {
+      this.db.run("INSERT INTO runs(id,workflow_id,environment_id,manager_id,agent_id,objective,status,started_at) VALUES(?,?,?,?,?,?,?,?)", runId, input.workflowId ?? null, input.environmentId, manager.id, agent.id, objective, "running", timestamp);
+      this.db.run("INSERT INTO run_controls(run_id,state,permissions_json,retry_count,max_retries,timeout_ms,updated_at) VALUES(?,?,?,?,?,?,?)", runId, "running", "[]", 0, 1, 120_000, timestamp);
+      this.db.run("INSERT INTO run_events(run_id,kind,detail_json,created_at) VALUES(?,?,?,?)", runId, "agent.deployed", json({ agentId: agent.id, permissions: [] }), timestamp);
+    });
     this.audit("manager", manager.id, "run.started", "run", runId, { agentId: agent.id });
     void this.executeRun(runId);
     return this.db.get<Row>("SELECT * FROM runs WHERE id=?", runId)!;
@@ -395,26 +482,74 @@ export class Atlas {
 
   async executeRun(runId: string): Promise<void> {
     const run = this.db.get<Row>("SELECT * FROM runs WHERE id=?", runId);
-    if (!run) return;
+    const control = this.db.get<Row>("SELECT * FROM run_controls WHERE run_id=?", runId);
+    if (!run || !control || control.state !== "running") return;
     try {
-      const output = await this.model.generate({
+      const output = await withTimeout(this.model.generate({
         system: "You are an ATLAS task agent. Complete the assigned knowledge-work task. Report findings, evidence, uncertainty, and verification. Do not claim to have used tools you were not given.",
         input: run.objective
-      });
+      }), control.timeout_ms);
+      const currentState = this.db.get<Row>("SELECT state FROM run_controls WHERE run_id=?", runId)?.state;
+      if (currentState !== "running") return;
+      const verification = { verified: false, checks: ["non-empty output"], limitation: "No independent domain verifier is configured for generic knowledge work.", verifiedAt: now() };
+      if (!output.trim()) throw new Error("Task agent returned no result.");
       this.db.transaction(() => {
-        this.db.run("UPDATE runs SET status='completed',result=?,completed_at=? WHERE id=?", output, now(), runId);
+        this.db.run("INSERT INTO run_artifacts(id,run_id,kind,name,content_json,verified,created_at) VALUES(?,?,?,?,?,0,?)", id("artifact"), runId, "result", "task-result.json", json({ output }), now());
+        this.db.run("UPDATE run_controls SET state='completed',verification_json=?,updated_at=? WHERE run_id=?", json(verification), now(), runId);
+        this.db.run("UPDATE runs SET status='completed',result=?,error=NULL,completed_at=? WHERE id=?", output, now(), runId);
         this.db.run("UPDATE agents SET status='retired',retired_at=? WHERE id=? AND lifecycle='temporary'", now(), run.agent_id);
-        this.db.run(
-          "INSERT INTO memories(id,scope_type,scope_id,kind,content,source,confidence,created_at) VALUES(?,?,?,?,?,?,?,?)",
-          id("mem"), "environment", run.environment_id, "episodic", output, `run:${runId}`, 0.8, now()
-        );
+        this.db.run("INSERT INTO memories(id,scope_type,scope_id,kind,content,source,confidence,created_at) VALUES(?,?,?,?,?,?,?,?)", id("mem"), "environment", run.environment_id, "episodic", output, `run:${runId}`, 0.6, now());
       });
-      this.audit("manager", run.manager_id, "run.completed", "run", runId, { verified: true, temporaryAgentRetired: true });
+      this.audit("manager", run.manager_id, "run.completed", "run", runId, { verified: false, artifact: "task-result.json", temporaryAgentRetired: true });
     } catch (error) {
-      this.db.run("UPDATE runs SET status='failed',error=?,completed_at=? WHERE id=?", safeError(error), now(), runId);
-      this.db.run("UPDATE agents SET status='retired',retired_at=? WHERE id=? AND lifecycle='temporary'", now(), run.agent_id);
-      this.audit("manager", run.manager_id, "run.failed", "run", runId, { error: safeError(error) });
+      const currentState = this.db.get<Row>("SELECT state FROM run_controls WHERE run_id=?", runId)?.state;
+      if (["paused", "cancelled"].includes(currentState)) return;
+      this.failRun(run, error);
     }
+  }
+
+  controlRun(runId: string, action: "pause" | "resume" | "cancel" | "retry"): Row {
+    if (!["pause", "resume", "cancel", "retry"].includes(action)) throw new Error("Unsupported run control action.");
+    const run = this.db.get<Row>("SELECT * FROM runs WHERE id=?", runId);
+    const control = this.db.get<Row>("SELECT * FROM run_controls WHERE run_id=?", runId);
+    if (!run || !control) throw new Error("Managed run not found.");
+    if (action === "pause") {
+      if (control.state !== "running") throw new Error("Only a running task can be paused.");
+      this.db.run("UPDATE run_controls SET state='paused',updated_at=? WHERE run_id=?", now(), runId);
+      this.db.run("UPDATE runs SET status='paused' WHERE id=?", runId);
+    } else if (action === "cancel") {
+      if (!["running", "paused"].includes(control.state)) throw new Error("Only active work can be cancelled.");
+      this.db.transaction(() => {
+        this.db.run("UPDATE run_controls SET state='cancelled',updated_at=? WHERE run_id=?", now(), runId);
+        this.db.run("UPDATE runs SET status='cancelled',completed_at=? WHERE id=?", now(), runId);
+        this.db.run("UPDATE agents SET status='retired',retired_at=? WHERE id=? AND lifecycle='temporary'", now(), run.agent_id);
+      });
+    } else {
+      if (action === "resume" && control.state !== "paused") throw new Error("Only paused work can be resumed.");
+      if (action === "retry") {
+        if (!["failed", "cancelled"].includes(control.state)) throw new Error("Only failed or cancelled work can be retried.");
+        if (control.retry_count >= control.max_retries) throw new Error("Retry limit reached.");
+      }
+      this.db.transaction(() => {
+        this.db.run("UPDATE run_controls SET state='running',retry_count=retry_count+?,updated_at=? WHERE run_id=?", action === "retry" ? 1 : 0, now(), runId);
+        this.db.run("UPDATE runs SET status='running',error=NULL,result=NULL,completed_at=NULL WHERE id=?", runId);
+        this.db.run("UPDATE agents SET status='provisioned',retired_at=NULL WHERE id=?", run.agent_id);
+      });
+      const permissions = parseJson<AtlasPermission[]>(control.permissions_json);
+      if (permissions.includes("system.disk.read")) void this.executeDiskSpaceRun(runId);
+      else void this.executeRun(runId);
+    }
+    this.db.run("INSERT INTO run_events(run_id,kind,detail_json,created_at) VALUES(?,?,?,?)", runId, `run.${action}`, "{}", now());
+    this.audit("user", null, `run.${action}`, "run", runId);
+    return this.db.get<Row>("SELECT * FROM runs WHERE id=?", runId)!;
+  }
+
+  controlWorkflow(workflowId: string, enabled: boolean): Row {
+    const workflow = this.db.get<Row>("SELECT * FROM workflows WHERE id=?", workflowId);
+    if (!workflow) throw new Error("Workflow not found.");
+    this.db.run("UPDATE workflows SET enabled=? WHERE id=?", enabled ? 1 : 0, workflowId);
+    this.audit("user", null, enabled ? "workflow.enabled" : "workflow.disabled", "workflow", workflowId);
+    return this.db.get<Row>("SELECT * FROM workflows WHERE id=?", workflowId)!;
   }
 
   private async codingAgentTask(message: string, jobId?: string, report: (progress: number, stage: string) => void = () => {}): Promise<Record<string, unknown>> {

@@ -60,7 +60,7 @@ npm start
 2. ATLAS discovers local capacity and creates exactly one dedicated Manager.
 3. Open that Manager and describe a workflow in plain English.
 4. The Manager creates the workflow and required agent profiles.
-5. Create a persistent agent or deploy a temporary task from **Agents & workflows**.
+5. Run **Check real disk space** to exercise the permissioned tool broker, or deploy another temporary task.
 6. Observe execution, results, cleanup, and audit events.
 7. Ask **ADA** to delegate a platform change to its coding agent.
 8. Review its proposed writes or checks under **Audit & approvals**.

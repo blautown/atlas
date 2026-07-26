@@ -55,6 +55,10 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
     send(response, 201, atlas.createWorkflow(await body(request)));
     return true;
   }
+  if (request.method === "POST" && url.pathname === "/api/runs/disk-space") {
+    send(response, 202, await atlas.deployDiskSpace(await body(request)));
+    return true;
+  }
   if (request.method === "POST" && url.pathname === "/api/runs") {
     send(response, 202, await atlas.deploy(await body(request)));
     return true;
@@ -73,6 +77,18 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
   if (request.method === "POST" && url.pathname === "/api/ada/coding-agent") {
     const input = await body(request);
     send(response, 202, atlas.queueAdaCodingAgent(input.message));
+    return true;
+  }
+  const runControlMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/control$/);
+  if (request.method === "POST" && runControlMatch?.[1]) {
+    const input = await body(request);
+    send(response, 200, atlas.controlRun(runControlMatch[1], input.action));
+    return true;
+  }
+  const workflowControlMatch = url.pathname.match(/^\/api\/workflows\/([^/]+)\/control$/);
+  if (request.method === "POST" && workflowControlMatch?.[1]) {
+    const input = await body(request);
+    send(response, 200, atlas.controlWorkflow(workflowControlMatch[1], input.enabled === true));
     return true;
   }
   const approvalMatch = url.pathname.match(/^\/api\/approvals\/([^/]+)$/);
