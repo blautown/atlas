@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ATLAS Control Centre</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><span class="mark">A</span><div><strong>ATLAS</strong><small>Operating Platform</small></div></div>
+    <div class="workspace-state"><span class="status-dot"></span><div><strong>Local workspace</strong><small id="fleetState">Loading system state</small></div></div>
+    <nav aria-label="Primary navigation">
+      <p class="nav-label">Operate</p>
+      <button class="nav active" data-view="overview"><strong>Overview</strong><small>Capacity and attention</small></button>
+      <button class="nav" data-view="environments"><strong>Environments</strong><small>Machines and Managers</small></button>
+      <button class="nav" data-view="workforce"><strong>Work</strong><small>Agents and execution</small></button>
+      <p class="nav-label">Build and govern</p>
+      <button class="nav" data-view="development"><strong>Roadmap</strong><small>Evolve the platform</small></button>
+      <button class="nav" data-view="audit"><strong>Governance</strong><small>Approvals and history</small></button>
+    </nav>
+    <div class="provider" id="providerStatus"></div>
+  </aside>
+
+  <main>
+    <header class="topbar">
+      <div><p class="eyebrow">ATLAS WORKSPACE</p><h1 id="viewTitle">Overview</h1><p class="view-description" id="viewDescription">System capacity, activity, and anything that needs you.</p></div>
+      <div class="header-actions"><button class="secondary" id="refresh">Refresh</button><button data-go="environments">Connect environment</button></div>
+    </header>
+    <div id="notice" role="status" aria-live="polite"></div>
+
+    <section id="overview" class="view active">
+      <div class="metrics" id="metrics"></div>
+      <div class="grid two">
+        <article><div class="article-head"><div><p class="section-kicker">FLEET</p><h2>Environment health</h2></div><button class="quiet" data-go="environments">Manage</button></div><div id="environmentSummary"></div></article>
+        <article><div class="article-head"><div><p class="section-kicker">YOUR INPUT</p><h2>Attention queue</h2></div><button class="quiet" data-go="audit">Review</button></div><div id="attentionSummary"></div></article>
+      </div>
+      <article><div class="article-head"><div><p class="section-kicker">RECENT</p><h2>Execution</h2></div><button data-go="workforce">Deploy task</button></div><div id="runSummary"></div></article>
+    </section>
+
+    <section id="environments" class="view">
+      <div class="page-intro"><div><h2>Environments</h2><p>Connect a machine or cloud runtime. ATLAS assigns exactly one AI Manager to every healthy environment.</p></div></div>
+      <div class="grid split">
+        <article>
+          <p class="section-kicker">ADD CAPACITY</p><h2>Connect an environment</h2>
+          <form id="environmentForm">
+            <label>Name<input name="name" required placeholder="Primary workstation"></label>
+            <label>Execution target<select name="kind"><option value="local">This computer</option><option value="cloud">Cloud runtime endpoint</option></select></label>
+            <label>Cloud endpoint <span>only needed for cloud targets</span><input name="endpoint" placeholder="https://runtime.example.com"></label>
+            <button type="submit">Connect and assign Manager</button>
+          </form>
+        </article>
+        <article><div class="article-head"><div><p class="section-kicker">CONNECTED</p><h2>Environment fleet</h2></div><span class="count" id="environmentCount">0</span></div><div id="environmentList"></div></article>
+      </div>
+    </section>
+
+    <section id="workforce" class="view">
+      <div class="page-intro"><div><h2>Work</h2><p>Deploy one-off tasks or create persistent agents. Every agent is supervised by its environment Manager.</p></div></div>
+      <div class="grid two">
+        <article><p class="section-kicker">ONE-OFF</p><h2>Deploy a task agent</h2><form id="runForm"><label>Environment<select name="environmentId" id="runEnvironment" required></select></label><label>Objective<textarea name="objective" required placeholder="Describe the outcome and how it should be verified."></textarea></label><button type="submit">Deploy through Manager</button></form></article>
+        <article><p class="section-kicker">ALWAYS ON</p><h2>Create a persistent agent</h2><form id="agentForm"><label>Environment<select name="environmentId" id="agentEnvironment" required></select></label><label>Name<input name="name" required placeholder="Operations Monitor"></label><label>Continuing objective<textarea name="objective" required placeholder="Describe the routine responsibility."></textarea></label><input type="hidden" name="lifecycle" value="persistent"><button type="submit">Create under Manager</button></form></article>
+      </div>
+      <div class="grid two"><article><div class="article-head"><h2>Agent registry</h2><span class="count" id="agentCount">0</span></div><div id="agentList"></div></article><article><div class="article-head"><h2>Learned workflows</h2><span class="count" id="workflowCount">0</span></div><div id="workflowList"></div></article></div>
+      <article><div class="article-head"><h2>Execution history</h2><span class="count" id="runCount">0</span></div><div id="runList"></div></article>
+    </section>
+
+    <section id="development" class="view">
+      <div class="page-intro"><div><h2>Platform roadmap</h2><p id="roadmapPurpose">Loading the repository roadmap.</p></div><button id="openDevChat">Open Development Assistant</button></div>
+      <article><div class="article-head"><div><p class="section-kicker">REPOSITORY SOURCE OF TRUTH</p><h2>Build sequence</h2></div><span class="badge">Assistant aware</span></div><div id="roadmapList"></div></article>
+    </section>
+
+    <section id="audit" class="view">
+      <div class="page-intro"><div><h2>Governance</h2><p>Review sensitive actions and inspect the permanent record of ATLAS activity.</p></div></div>
+      <div class="grid two"><article><div class="article-head"><h2>Human-in-the-loop requests</h2><span class="count" id="approvalCount">0</span></div><div id="approvalList"></div></article><article><div class="article-head"><h2>Activity trail</h2><span class="count" id="auditCount">0</span></div><div id="auditList"></div></article></div>
+    </section>
+  </main>
+
+  <div class="chat-dock" id="chatDock" aria-label="ATLAS conversations"></div>
+  <aside class="messenger hidden" id="messenger" aria-label="ATLAS messenger">
+    <div class="messenger-head">
+      <div class="messenger-avatar" id="messengerAvatar">DA</div>
+      <div class="messenger-identity"><strong id="messengerTitle">Development Assistant</strong><small id="messengerSubtitle">ATLAS platform development</small></div>
+      <button class="text-button" id="minimiseMessenger" type="button">Minimise</button>
+      <button class="text-button" id="closeMessenger" type="button">Close</button>
+    </div>
+    <div class="messenger-context" id="messengerContext"></div>
+    <div class="messenger-messages" id="messengerMessages"></div>
+    <form class="messenger-composer" id="messengerForm">
+      <textarea name="message" rows="2" required aria-label="Message" placeholder="Ask the Development Assistant to inspect or improve ATLAS…"></textarea>
+      <div class="composer-foot"><small id="composerHint">Changes remain approval-controlled.</small><button type="submit">Send</button></div>
+    </form>
+  </aside>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

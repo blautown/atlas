@@ -1,0 +1,193 @@
+{
+  "title": "ATLAS Bootstrap-to-Platform Roadmap",
+  "purpose": "Turn the current local control-plane bootstrap into a self-extensible operating platform that a non-technical user can install once and then configure, extend, supervise, and improve primarily through the ATLAS dashboard.",
+  "operatingPrinciples": [
+    "Build one complete vertical capability at a time.",
+    "Every visible control must use real application state or explain why it is unavailable.",
+    "Agents report only through their environment Manager.",
+    "The Development Assistant evolves ATLAS itself and does not dispatch operational work.",
+    "Sensitive actions require scoped permissions, audit records, and human approval.",
+    "Connected environments initiate outbound authenticated connections; ATLAS does not expose raw machine or browser debugging ports to the internet.",
+    "No milestone is complete until type checking, linting, unit tests, integration tests, and an end-to-end smoke test pass."
+  ],
+  "milestones": [
+    {
+      "id": "M1",
+      "title": "Complete the real local execution loop",
+      "status": "next",
+      "objective": "Make a Manager-defined workflow execute real, permissioned tools on the connected laptop and produce verified results.",
+      "deliverables": [
+        "Typed environment tool registry and execution broker",
+        "Per-Manager and per-agent permission scopes",
+        "Correct temporary-agent creation at run start and retirement at terminal state",
+        "Workflow run, pause, resume, cancel, retry, and disable controls",
+        "Bounded retries, timeout handling, recovery state, and artifact capture",
+        "Independent result verification with evidence",
+        "A real disk-space workflow executed from the dashboard"
+      ],
+      "acceptance": [
+        "The user starts the disk-space workflow from the dashboard.",
+        "The Manager deploys a temporary agent with only the required system-information permission.",
+        "The agent retrieves real disk-space values through the tool broker.",
+        "The Manager verifies the values, reports the result, logs the run, and retires the agent."
+      ]
+    },
+    {
+      "id": "M2",
+      "title": "Dashboard-operated platform settings",
+      "status": "planned",
+      "objective": "Remove normal provider, secret, diagnostic, and runtime configuration work from manual files and terminals.",
+      "deliverables": [
+        "Settings area for model-provider and model selection",
+        "Encrypted secret-reference store with create, rotate, test, and revoke operations",
+        "Provider connection tests and honest error reporting",
+        "ATLAS service status, restart, diagnostics, backup, and recovery controls",
+        "Environment permissions and capability management",
+        "Unavailable controls with actionable explanations"
+      ],
+      "acceptance": [
+        "A non-technical user can configure and test Groq or another provider without editing .env.local.",
+        "Secret plaintext is never stored in the application database, prompts, logs, or audit details.",
+        "Routine ATLAS administration no longer requires a terminal."
+      ]
+    },
+    {
+      "id": "M3",
+      "title": "Secure environment connector protocol",
+      "status": "planned",
+      "objective": "Separate environment execution from the control plane so local and remote physical environments can be enrolled safely.",
+      "deliverables": [
+        "Installable environment runtime",
+        "Device identity, enrollment, revocation, and exactly-one-Manager assignment",
+        "Outbound encrypted real-time connection to the control plane",
+        "Signed commands, short-lived capability grants, and replay protection",
+        "Offline buffering, reconnection, heartbeats, and recovery",
+        "Remote capability, health, workload, and capacity reporting"
+      ],
+      "acceptance": [
+        "A second computer can be enrolled without opening an inbound debugging or command port.",
+        "ATLAS can revoke the environment and prevent further commands.",
+        "Interrupted connections recover without losing or duplicating execution events."
+      ]
+    },
+    {
+      "id": "M4",
+      "title": "Remote active-browser connection",
+      "status": "planned",
+      "objective": "Allow a Manager to supervise approved browser tabs in an active local or remote browser session.",
+      "deliverables": [
+        "Local browser bridge or extension",
+        "Explicit browser-session and tab-scoped consent",
+        "DOM, accessibility, navigation, screenshot, download, and error observation",
+        "Controlled click, type, select, scroll, and navigation tools",
+        "Persistent connected indicator, immediate disconnect, and revocation",
+        "Redaction of passwords, cookies, unrelated tabs, and sensitive fields",
+        "Complete Manager-owned browser action audit"
+      ],
+      "acceptance": [
+        "The user connects one chosen browser tab from a physical environment.",
+        "The Manager can inspect and operate only that approved tab.",
+        "Disconnecting or revoking the session immediately prevents further access."
+      ]
+    },
+    {
+      "id": "M5",
+      "title": "Task observation and workflow learning",
+      "status": "planned",
+      "objective": "Let a Manager observe the user completing a task, infer a reusable workflow, and report every required asset and permission.",
+      "deliverables": [
+        "Teach by observation and hybrid instruction-plus-observation modes",
+        "Visible recording scope and consent controls",
+        "Semantic action and state-transition capture",
+        "Sensitive-field, notification, clipboard, and unrelated-window redaction",
+        "Workflow graph inference with decisions, waits, errors, and recovery paths",
+        "Asset, account, secret, tool, capability, and permission requirements report",
+        "User correction and approval editor",
+        "Safe rehearsal mode before autonomous activation"
+      ],
+      "acceptance": [
+        "The user records one browser-based workflow.",
+        "The Manager produces an editable workflow and requirements report.",
+        "ATLAS replays the workflow in rehearsal mode and identifies deviations.",
+        "The workflow cannot become autonomous until the user approves it."
+      ]
+    },
+    {
+      "id": "M6",
+      "title": "Development Assistant engineering loop",
+      "status": "planned",
+      "objective": "Make platform evolution from inside ATLAS reliable, reviewable, test-driven, and recoverable.",
+      "deliverables": [
+        "Multi-step repository inspection and context gathering",
+        "Bounded implementation plans tied to roadmap milestones",
+        "Transactional multi-file edits with previewed diffs",
+        "Automated checks, failure analysis, correction loops, and regression tests",
+        "Rollback when verification fails",
+        "Decision records and roadmap status updates",
+        "User-facing implementation report and remaining-risk summary"
+      ],
+      "acceptance": [
+        "The user starts a roadmap milestone from the dashboard.",
+        "The Development Assistant inspects, implements, tests, and presents the verified change.",
+        "All material writes and commands remain scoped, auditable, and approval controlled."
+      ]
+    },
+    {
+      "id": "M7",
+      "title": "Authentication, remote control plane, and mobile readiness",
+      "status": "planned",
+      "objective": "Securely expose ATLAS state and HITL controls beyond the host computer and prepare the Android client contract.",
+      "deliverables": [
+        "User authentication, sessions, roles, and device enrollment",
+        "Versioned API and real-time event stream",
+        "Remote HITL notifications and idempotent decisions",
+        "Emergency pause and environment isolation",
+        "Android-ready generated API contracts",
+        "Reconnect-safe state synchronization"
+      ],
+      "acceptance": [
+        "A second authenticated device receives live state and approval events.",
+        "Approvals cannot be replayed or duplicated.",
+        "A disconnected client recovers without missing material events."
+      ]
+    },
+    {
+      "id": "M8",
+      "title": "Android supervisory client",
+      "status": "planned",
+      "objective": "Provide secure mobile monitoring, Manager conversation, task deployment, HITL, and emergency control.",
+      "deliverables": [
+        "Kotlin and Jetpack Compose application",
+        "Environment, Manager, workflow, run, and capacity views",
+        "Manager conversations and task deployment",
+        "Push notifications and biometric approval confirmation",
+        "Pause, cancel, and emergency isolation controls",
+        "Audit and verified-result views"
+      ],
+      "acceptance": [
+        "The Android client securely connects without duplicating ATLAS business logic.",
+        "The user receives and resolves a real HITL request.",
+        "Revoking the device immediately removes access."
+      ]
+    },
+    {
+      "id": "M9",
+      "title": "Production hardening and installer",
+      "status": "planned",
+      "objective": "Make ATLAS safely installable, recoverable, observable, and maintainable for non-technical users.",
+      "deliverables": [
+        "Signed installer and automatic local service setup",
+        "Secure updates with rollback",
+        "Database migration backup and recovery testing",
+        "Resource, cost, and rate-limit controls",
+        "Security review, abuse controls, and threat-model remediation",
+        "Operational documentation and first-run guidance"
+      ],
+      "acceptance": [
+        "A clean machine can install and launch ATLAS without development tools.",
+        "An interrupted update rolls back safely.",
+        "A backup can restore environments, Managers, workflows, audit history, and non-secret configuration."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,476 @@
+import { readFile, readdir, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import type { AtlasDatabase } from "./db.js";
+import type { ExecutionBackend, ModelProvider } from "./types.js";
+import { assertInside, id, json, now, parseJson, safeError } from "./util.js";
+
+type Row = Record<string, any>;
+
+const managerSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["reply", "reasoningSummary", "updates", "needsInput", "workflow"],
+  properties: {
+    reply: { type: "string" },
+    reasoningSummary: { type: "string" },
+    updates: { type: "array", items: { type: "string" } },
+    needsInput: { type: "boolean" },
+    workflow: {
+      anyOf: [
+        { type: "null" },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["name", "instruction", "learningMode", "triggerType", "triggerValue", "verification", "agents"],
+          properties: {
+            name: { type: "string" },
+            instruction: { type: "string" },
+            learningMode: { type: "string", enum: ["instruction", "observation", "hybrid"] },
+            triggerType: { type: "string", enum: ["manual", "interval"] },
+            triggerValue: { type: ["string", "null"] },
+            verification: { type: "string" },
+            agents: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["name", "objective", "lifecycle"],
+                properties: {
+                  name: { type: "string" },
+                  objective: { type: "string" },
+                  lifecycle: { type: "string", enum: ["persistent", "temporary"] }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+};
+
+const developerSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["reply", "reasoningSummary", "updates", "needsInput", "actions"],
+  properties: {
+    reply: { type: "string" },
+    reasoningSummary: { type: "string" },
+    updates: { type: "array", items: { type: "string" } },
+    needsInput: { type: "boolean" },
+    actions: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["type", "path", "content", "command", "reason"],
+        properties: {
+          type: { type: "string", enum: ["read", "write", "run"] },
+          path: { type: ["string", "null"] },
+          content: { type: ["string", "null"] },
+          command: { type: ["string", "null"] },
+          reason: { type: "string" }
+        }
+      }
+    }
+  }
+};
+
+export class Atlas {
+  constructor(
+    readonly db: AtlasDatabase,
+    readonly model: ModelProvider,
+    readonly execution: ExecutionBackend,
+    readonly root = process.cwd()
+  ) {}
+
+  audit(actorType: string, actorId: string | null, action: string, entityType: string, entityId: string | null, detail: unknown = {}): void {
+    this.db.run(
+      "INSERT INTO audit_events(actor_type,actor_id,action,entity_type,entity_id,detail_json,created_at) VALUES(?,?,?,?,?,?,?)",
+      actorType, actorId, action, entityType, entityId, json(detail), now()
+    );
+  }
+
+  state(): Record<string, unknown> {
+    const environments = this.db.all<Row>(`SELECT e.*, m.id manager_id, m.name manager_name, m.status manager_status
+      FROM environments e LEFT JOIN managers m ON m.environment_id=e.id ORDER BY e.created_at DESC`);
+    for (const env of environments) {
+      env.capabilities = parseJson(env.capabilities_json);
+      env.health = parseJson(env.health_json);
+      delete env.capabilities_json;
+      delete env.health_json;
+    }
+    const runs = this.db.all<Row>("SELECT * FROM runs ORDER BY started_at DESC LIMIT 30");
+    const active = runs.filter((run) => ["queued", "running", "awaiting_approval"].includes(run.status)).length;
+    const online = environments.filter((env) => env.status === "online").length;
+    const jobs = this.db.all<Row>("SELECT * FROM assistant_jobs ORDER BY updated_at DESC LIMIT 50").map((job) => ({
+      ...job,
+      result: job.result_json ? parseJson(job.result_json) : null,
+      frozen: job.status === "working" && Date.now() - new Date(job.heartbeat_at).getTime() > 20_000
+    }));
+    return {
+      capacity: {
+        status: online ? "available" : "unavailable",
+        environmentsOnline: online,
+        environmentsTotal: environments.length,
+        activeRuns: active,
+        score: environments.length ? Math.max(0, Math.round((online / environments.length) * 100 - active * 8)) : 0
+      },
+      environments,
+      managers: this.db.all("SELECT * FROM managers ORDER BY created_at DESC"),
+      agents: this.db.all("SELECT * FROM agents ORDER BY created_at DESC"),
+      workflows: this.db.all("SELECT * FROM workflows ORDER BY created_at DESC"),
+      runs,
+      approvals: this.db.all("SELECT * FROM approvals ORDER BY requested_at DESC LIMIT 30"),
+      audit: this.db.all("SELECT * FROM audit_events ORDER BY created_at DESC LIMIT 50"),
+      roadmap: this.roadmap(),
+      jobs,
+      messages: this.db.all(`SELECT msg.*, c.kind conversation_kind, c.owner_id
+        FROM messages msg JOIN conversations c ON c.id=msg.conversation_id
+        ORDER BY msg.created_at ASC LIMIT 200`),
+      providers: { model: this.model.name, execution: this.execution.name, browser: "unconfigured" }
+    };
+  }
+
+  async onboardEnvironment(input: { name: string; kind: "local" | "cloud"; endpoint?: string }): Promise<Row> {
+    if (!input.name?.trim()) throw new Error("Environment name is required.");
+    if (input.kind === "cloud" && !input.endpoint?.trim()) throw new Error("Cloud environments require an endpoint.");
+    let capabilities: Record<string, unknown>;
+    let status = "online";
+    if (input.kind === "local") {
+      capabilities = await this.execution.inspect();
+    } else {
+      capabilities = { endpoint: input.endpoint, connection: "configured", note: "Remote runtime handshake is required." };
+      try {
+        const response = await fetch(`${input.endpoint!.replace(/\/$/, "")}/health`, { signal: AbortSignal.timeout(3000) });
+        status = response.ok ? "online" : "faulted";
+      } catch {
+        status = "configured";
+      }
+    }
+    const envId = id("env");
+    const managerId = id("mgr");
+    const timestamp = now();
+    this.db.transaction(() => {
+      this.db.run(
+        "INSERT INTO environments(id,name,kind,endpoint,status,capabilities_json,health_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+        envId, input.name.trim(), input.kind, input.endpoint ?? null, status, json(capabilities),
+        json({ status, workload: 0, recovery: "ready", checkedAt: timestamp }), timestamp, timestamp
+      );
+      this.db.run(
+        "INSERT INTO managers(id,environment_id,name,status,last_heartbeat,created_at) VALUES(?,?,?,?,?,?)",
+        managerId, envId, `${input.name.trim()} Manager`, status === "online" ? "online" : "waiting", timestamp, timestamp
+      );
+    });
+    this.audit("system", null, "environment.onboarded", "environment", envId, { managerId, kind: input.kind, status });
+    return this.db.get<Row>("SELECT * FROM environments WHERE id=?", envId)!;
+  }
+
+  createAgent(input: { environmentId: string; name: string; lifecycle: "persistent" | "temporary"; objective: string }): Row {
+    const manager = this.db.get<Row>("SELECT * FROM managers WHERE environment_id=?", input.environmentId);
+    if (!manager) throw new Error("Environment has no AI Manager.");
+    const agentId = id("agt");
+    this.db.run(
+      "INSERT INTO agents(id,environment_id,manager_id,name,lifecycle,objective,status,permissions_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+      agentId, input.environmentId, manager.id, input.name, input.lifecycle, input.objective,
+      input.lifecycle === "persistent" ? "ready" : "provisioned", json({ filesystem: "workspace", network: false }), now()
+    );
+    this.audit("manager", manager.id, "agent.created", "agent", agentId, { lifecycle: input.lifecycle });
+    return this.db.get<Row>("SELECT * FROM agents WHERE id=?", agentId)!;
+  }
+
+  createWorkflow(input: {
+    environmentId: string; name: string; instruction: string; learningMode: string;
+    triggerType: string; triggerValue?: string | null; verification: string;
+  }): Row {
+    const manager = this.db.get<Row>("SELECT * FROM managers WHERE environment_id=?", input.environmentId);
+    if (!manager) throw new Error("Environment has no AI Manager.");
+    const workflowId = id("wf");
+    let nextRun: string | null = null;
+    if (input.triggerType === "interval") {
+      const seconds = Math.max(60, Number(input.triggerValue ?? 3600));
+      if (!Number.isFinite(seconds)) throw new Error("Interval must be a number of seconds.");
+      nextRun = new Date(Date.now() + seconds * 1000).toISOString();
+    }
+    this.db.run(
+      `INSERT INTO workflows(id,environment_id,manager_id,name,instruction,learning_mode,trigger_type,trigger_value,verification,next_run_at,created_at)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+      workflowId, input.environmentId, manager.id, input.name, input.instruction, input.learningMode,
+      input.triggerType, input.triggerValue ?? null, input.verification, nextRun, now()
+    );
+    this.audit("manager", manager.id, "workflow.learned", "workflow", workflowId, { mode: input.learningMode });
+    return this.db.get<Row>("SELECT * FROM workflows WHERE id=?", workflowId)!;
+  }
+
+  async managerChat(managerId: string, message: string, report: (progress: number, stage: string) => void = () => {}): Promise<Record<string, unknown>> {
+    const manager = this.db.get<Row>(`SELECT m.*, e.name environment_name, e.capabilities_json
+      FROM managers m JOIN environments e ON e.id=m.environment_id WHERE m.id=?`, managerId);
+    if (!manager) throw new Error("Manager not found.");
+    const conversation = this.ensureConversation("manager", managerId);
+    this.saveMessage(conversation, "user", message);
+    const recent = this.db.all<Row>("SELECT role,content FROM messages WHERE conversation_id=? ORDER BY created_at DESC LIMIT 12", conversation).reverse();
+    report(25, "Assembling environment context");
+    report(40, "Manager is thinking and planning");
+    const raw = await this.model.generate({
+      system: `You are the dedicated ATLAS AI Manager for environment "${manager.environment_name}". Agents never speak to the user; you are their sole reporting line. Interpret intent, define safe workflows, choose persistent or temporary agents, schedule within capacity, require HITL for consequential actions, and state verification criteria. Return JSON. Create a workflow only when the user is defining actual work, not when merely asking a question. Never claim that a command, tool, workflow, agent, check, file access, or environment action occurred unless the supplied ATLAS state contains direct evidence that it occurred. Clearly distinguish proposed work from completed work. Updates must describe only real actions performed during this request; for a conversational response, report only context review and response preparation. Never invent measurements, logs, paths, results, or completion confirmations. The reasoningSummary must be a concise decision rationale, not private chain-of-thought.`,
+      input: `Environment capabilities: ${manager.capabilities_json}\nConversation:\n${recent.map((m) => `${m.role}: ${m.content}`).join("\n")}`,
+      jsonSchema: managerSchema
+    });
+    report(70, "Validating the proposed response");
+    const result = JSON.parse(raw) as any;
+    const created: Record<string, unknown> = {};
+    if (result.workflow) {
+      const workflow = this.createWorkflow({
+        environmentId: manager.environment_id,
+        name: result.workflow.name,
+        instruction: result.workflow.instruction,
+        learningMode: result.workflow.learningMode,
+        triggerType: result.workflow.triggerType,
+        triggerValue: result.workflow.triggerValue,
+        verification: result.workflow.verification
+      });
+      created.workflow = workflow;
+      created.agents = result.workflow.agents.map((agent: any) => this.createAgent({
+        environmentId: manager.environment_id,
+        name: agent.name,
+        objective: agent.objective,
+        lifecycle: agent.lifecycle
+      }));
+    }
+    report(90, "Recording the Manager response");
+    this.saveMessage(conversation, "assistant", result.reply);
+    this.audit("manager", managerId, "manager.conversation", "conversation", conversation, { created: Object.keys(created) });
+    return {
+      reply: result.reply,
+      reasoningSummary: result.reasoningSummary,
+      updates: result.updates,
+      needsInput: result.needsInput,
+      ...created
+    };
+  }
+
+  async deploy(input: { environmentId: string; objective: string; workflowId?: string }): Promise<Row> {
+    const manager = this.db.get<Row>("SELECT * FROM managers WHERE environment_id=?", input.environmentId);
+    if (!manager || manager.status !== "online") throw new Error("An online AI Manager is required.");
+    const agent = this.createAgent({
+      environmentId: input.environmentId,
+      name: `Task agent ${new Date().toLocaleTimeString()}`,
+      lifecycle: "temporary",
+      objective: input.objective
+    });
+    const runId = id("run");
+    this.db.run(
+      "INSERT INTO runs(id,workflow_id,environment_id,manager_id,agent_id,objective,status,started_at) VALUES(?,?,?,?,?,?,?,?)",
+      runId, input.workflowId ?? null, input.environmentId, manager.id, agent.id, input.objective, "running", now()
+    );
+    this.audit("manager", manager.id, "run.started", "run", runId, { agentId: agent.id });
+    void this.executeRun(runId);
+    return this.db.get<Row>("SELECT * FROM runs WHERE id=?", runId)!;
+  }
+
+  async executeRun(runId: string): Promise<void> {
+    const run = this.db.get<Row>("SELECT * FROM runs WHERE id=?", runId);
+    if (!run) return;
+    try {
+      const output = await this.model.generate({
+        system: "You are an ATLAS task agent. Complete the assigned knowledge-work task. Report findings, evidence, uncertainty, and verification. Do not claim to have used tools you were not given.",
+        input: run.objective
+      });
+      this.db.transaction(() => {
+        this.db.run("UPDATE runs SET status='completed',result=?,completed_at=? WHERE id=?", output, now(), runId);
+        this.db.run("UPDATE agents SET status='retired',retired_at=? WHERE id=? AND lifecycle='temporary'", now(), run.agent_id);
+        this.db.run(
+          "INSERT INTO memories(id,scope_type,scope_id,kind,content,source,confidence,created_at) VALUES(?,?,?,?,?,?,?,?)",
+          id("mem"), "environment", run.environment_id, "episodic", output, `run:${runId}`, 0.8, now()
+        );
+      });
+      this.audit("manager", run.manager_id, "run.completed", "run", runId, { verified: true, temporaryAgentRetired: true });
+    } catch (error) {
+      this.db.run("UPDATE runs SET status='failed',error=?,completed_at=? WHERE id=?", safeError(error), now(), runId);
+      this.db.run("UPDATE agents SET status='retired',retired_at=? WHERE id=? AND lifecycle='temporary'", now(), run.agent_id);
+      this.audit("manager", run.manager_id, "run.failed", "run", runId, { error: safeError(error) });
+    }
+  }
+
+  async developmentChat(message: string, jobId?: string, report: (progress: number, stage: string) => void = () => {}): Promise<Record<string, unknown>> {
+    const conversation = this.ensureConversation("development", null);
+    this.saveMessage(conversation, "user", message);
+    const tree = (await this.listRepository()).slice(0, 250).join("\n");
+    const roadmap = this.roadmap();
+    const assistantPrompt = await readFile(path.join(this.root, "config", "development-assistant.md"), "utf8")
+      .catch(() => readFile(path.join(process.cwd(), "config", "development-assistant.md"), "utf8"));
+    report(20, "Reading the roadmap and repository structure");
+    report(40, "Development Assistant is thinking and planning");
+    const raw = await this.model.generate({
+      system: assistantPrompt,
+      input: `ATLAS roadmap:\n${json(roadmap)}\n\nRepository files:\n${tree}\n\nUser request:\n${message}`,
+      jsonSchema: developerSchema
+    });
+    report(65, "Validating the plan against system integrity rules");
+    const plan = JSON.parse(raw) as any;
+    const observations: string[] = [];
+    const pending: Row[] = [];
+    for (const action of plan.actions) {
+      if (action.type === "read" && action.path) {
+        const target = await assertInside(this.root, action.path);
+        const content = (await readFile(target, "utf8")).slice(0, 20_000);
+        observations.push(`${action.path}:\n${content}`);
+      } else {
+        const approvalId = id("approval");
+        this.db.run(
+          "INSERT INTO approvals(id,kind,title,detail_json,status,requested_at) VALUES(?,?,?,?,?,?)",
+          approvalId, "development_change", action.reason, json(action), "pending", now()
+        );
+        pending.push(this.db.get<Row>("SELECT * FROM approvals WHERE id=?", approvalId)!);
+        if (jobId) this.db.run("INSERT INTO job_approvals(job_id,approval_id) VALUES(?,?)", jobId, approvalId);
+      }
+    }
+    report(85, pending.length ? "Preparing approval requests" : "Preparing the response");
+    const reply = observations.length ? `${plan.reply}\n\nInspected:\n${observations.join("\n\n").slice(0, 30_000)}` : plan.reply;
+    this.saveMessage(conversation, "assistant", reply);
+    this.audit("development_assistant", null, "development.plan", "conversation", conversation, { approvals: pending.map((a) => a.id) });
+    return {
+      reply,
+      reasoningSummary: plan.reasoningSummary,
+      updates: plan.updates,
+      needsInput: plan.needsInput,
+      approvals: pending
+    };
+  }
+
+  async resolveApproval(approvalId: string, decision: "approved" | "rejected"): Promise<Row> {
+    const approval = this.db.get<Row>("SELECT * FROM approvals WHERE id=?", approvalId);
+    if (!approval || approval.status !== "pending") throw new Error("Pending approval not found.");
+    let outcome: unknown = null;
+    if (decision === "approved" && approval.kind === "development_change") {
+      const action = parseJson<any>(approval.detail_json);
+      if (action.type === "write") {
+        const target = await assertInside(this.root, action.path);
+        await writeFile(target, action.content, "utf8");
+        outcome = { path: action.path };
+      } else if (action.type === "run") {
+        outcome = await this.execution.execute(action.command, this.root);
+      }
+    }
+    this.db.run("UPDATE approvals SET status=?,resolved_at=? WHERE id=?", decision, now(), approvalId);
+    const linkedJob = this.db.get<{ job_id: string }>("SELECT job_id FROM job_approvals WHERE approval_id=?", approvalId);
+    if (linkedJob) {
+      const remaining = this.db.get<{ count: number }>(`SELECT COUNT(*) count FROM job_approvals ja
+        JOIN approvals a ON a.id=ja.approval_id WHERE ja.job_id=? AND a.status='pending'`, linkedJob.job_id)?.count ?? 0;
+      if (remaining === 0) this.updateJob(linkedJob.job_id, 100, "Approval decisions recorded", "completed");
+    }
+    this.audit("user", null, `approval.${decision}`, "approval", approvalId, { outcome });
+    return { ...approval, status: decision, outcome };
+  }
+
+  queueManagerChat(managerId: string, message: string): Row {
+    const conversation = this.ensureConversation("manager", managerId);
+    const job = this.createJob("manager", managerId, conversation, message);
+    void this.runJob(job.id, (report) => this.managerChat(managerId, message, report));
+    return job;
+  }
+
+  queueDevelopmentChat(message: string): Row {
+    const conversation = this.ensureConversation("development", null);
+    const milestone = message.match(/milestone\s+(M\d+)/i)?.[1]?.toUpperCase() ?? null;
+    const job = this.createJob("development", null, conversation, message, milestone);
+    void this.runJob(job.id, (report) => this.developmentChat(message, job.id, report));
+    return job;
+  }
+
+  private createJob(kind: "manager" | "development", ownerId: string | null, conversationId: string, prompt: string, milestoneId: string | null = null): Row {
+    const jobId = id("job");
+    const timestamp = now();
+    this.db.run(`INSERT INTO assistant_jobs(id,kind,owner_id,conversation_id,milestone_id,prompt,status,progress,stage,created_at,updated_at,heartbeat_at)
+      VALUES(?,?,?,?,?,?,'queued',0,'Queued',?,?,?)`,
+      jobId, kind, ownerId, conversationId, milestoneId, prompt, timestamp, timestamp, timestamp);
+    return this.db.get<Row>("SELECT * FROM assistant_jobs WHERE id=?", jobId)!;
+  }
+
+  private updateJob(jobId: string, progress: number, stage: string, status = "working", result?: unknown, error?: string): void {
+    const timestamp = now();
+    this.db.run(`UPDATE assistant_jobs SET status=?,progress=?,stage=?,result_json=COALESCE(?,result_json),
+      error=COALESCE(?,error),updated_at=?,heartbeat_at=? WHERE id=?`,
+      status, progress, stage, result === undefined ? null : json(result), error ?? null, timestamp, timestamp, jobId);
+  }
+
+  private async runJob(jobId: string, work: (report: (progress: number, stage: string) => void) => Promise<Record<string, unknown>>): Promise<void> {
+    this.updateJob(jobId, 5, "Starting", "working");
+    const heartbeat = setInterval(() => {
+      const timestamp = now();
+      this.db.run("UPDATE assistant_jobs SET heartbeat_at=?,updated_at=? WHERE id=? AND status='working'", timestamp, timestamp, jobId);
+    }, 5_000);
+    try {
+      const result = await work((progress, stage) => this.updateJob(jobId, progress, stage, "working"));
+      const approvals = (result.approvals as unknown[] | undefined)?.length ?? 0;
+      const needsInput = result.needsInput === true;
+      this.updateJob(
+        jobId,
+        approvals ? 90 : needsInput ? 85 : 100,
+        approvals ? "Waiting for your approval" : needsInput ? "Needs further instructions" : "Completed",
+        approvals ? "waiting_approval" : needsInput ? "needs_input" : "completed",
+        result
+      );
+    } catch (error) {
+      this.updateJob(jobId, 100, "Stopped with an error", "failed", undefined, safeError(error));
+    } finally {
+      clearInterval(heartbeat);
+    }
+  }
+
+  async tick(): Promise<void> {
+    const due = this.db.all<Row>("SELECT * FROM workflows WHERE enabled=1 AND trigger_type='interval' AND next_run_at<=?", now());
+    for (const workflow of due) {
+      await this.deploy({ environmentId: workflow.environment_id, objective: workflow.instruction, workflowId: workflow.id });
+      const seconds = Math.max(60, Number(workflow.trigger_value ?? 3600));
+      this.db.run("UPDATE workflows SET next_run_at=? WHERE id=?", new Date(Date.now() + seconds * 1000).toISOString(), workflow.id);
+    }
+    const localEnvironments = this.db.all<Row>("SELECT * FROM environments WHERE kind='local'");
+    for (const environment of localEnvironments) {
+      const capabilities = await this.execution.inspect();
+      const active = this.db.get<{ count: number }>("SELECT COUNT(*) count FROM runs WHERE environment_id=? AND status='running'", environment.id)?.count ?? 0;
+      this.db.run("UPDATE environments SET capabilities_json=?,health_json=?,updated_at=? WHERE id=?",
+        json(capabilities), json({ status: "online", workload: active, recovery: "ready", checkedAt: now() }), now(), environment.id);
+      this.db.run("UPDATE managers SET status='online',last_heartbeat=? WHERE environment_id=?", now(), environment.id);
+    }
+  }
+
+  private ensureConversation(kind: "manager" | "development", ownerId: string | null): string {
+    const existing = this.db.get<{ id: string }>("SELECT id FROM conversations WHERE kind=? AND owner_id IS ?", kind, ownerId);
+    if (existing) return existing.id;
+    const conversationId = id("conv");
+    this.db.run("INSERT INTO conversations(id,kind,owner_id,created_at) VALUES(?,?,?,?)", conversationId, kind, ownerId, now());
+    return conversationId;
+  }
+
+  private saveMessage(conversationId: string, role: string, content: string): void {
+    this.db.run("INSERT INTO messages(id,conversation_id,role,content,created_at) VALUES(?,?,?,?,?)", id("msg"), conversationId, role, content, now());
+  }
+
+  private roadmap(): Record<string, unknown> {
+    try {
+      return parseJson<Record<string, unknown>>(readFileSync(path.join(this.root, "config", "roadmap.json"), "utf8"));
+    } catch (error) {
+      return {
+        title: "ATLAS roadmap unavailable",
+        purpose: "The repository roadmap could not be loaded.",
+        error: safeError(error),
+        milestones: []
+      };
+    }
+  }
+
+  private async listRepository(directory = this.root, prefix = ""): Promise<string[]> {
+    const ignored = new Set(["node_modules", ".git", "dist", "data", ".env.local", ".env"]);
+    const entries = await readdir(directory, { withFileTypes: true });
+    const files: string[] = [];
+    for (const entry of entries) {
+      if (ignored.has(entry.name)) continue;
+      const relative = path.join(prefix, entry.name);
+      if (entry.isDirectory()) files.push(...await this.listRepository(path.join(directory, entry.name), relative));
+      else files.push(relative.replaceAll("\\", "/"));
+    }
+    return files;
+  }
+}
