@@ -96,7 +96,7 @@
     {
       "id": "M4",
       "title": "Remote active-browser connection",
-      "status": "planned",
+      "status": "completed",
       "objective": "Allow a Manager to supervise approved browser tabs in an active local or remote browser session.",
       "deliverables": [
         "Local browser bridge or extension",
@@ -111,6 +111,17 @@
         "The user connects one chosen browser tab from a physical environment.",
         "The Manager can inspect and operate only that approved tab.",
         "Disconnecting or revoking the session immediately prevents further access."
+      ],
+      "completionEvidence": [
+        "Chrome Manifest V3 extension pairs only the active tab using explicit one-time consent.",
+        "Ed25519 browser identity, timestamped nonces, and replay protection authenticate every extension request.",
+        "Only the session environment Manager can queue allowed inspect, screenshot, error, download, click, type, select, scroll, and navigation actions.",
+        "Password and sensitive inputs are blocked from typing, redacted from DOM output, and visually masked before screenshots; no cookie permission exists.",
+        "Session badge, tab-close disconnect, dashboard disconnect/revoke, audit events, and command cancellation are implemented.",
+        "Twenty-one tests and the HTTP end-to-end smoke validate pairing, Manager ownership, redaction, command delivery, and revocation; physical Chrome validation remains.",
+        "Physical Chrome validation paired the approved https://nuts.gg/ tab to its environment Manager.",
+        "A live Manager-owned inspect command completed and returned observation evidence through ATLAS.",
+        "The earlier browser session was physically revoked and remained unable to receive further commands."
       ]
     },
     {

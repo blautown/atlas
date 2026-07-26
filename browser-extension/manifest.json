@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "ATLAS Browser Bridge",
+  "version": "0.1.0",
+  "description": "Consent-based, tab-scoped browser connection for ATLAS Managers.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "downloads",
+    "alarms"
+  ],
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Connect this tab to ATLAS"
+  }
+}

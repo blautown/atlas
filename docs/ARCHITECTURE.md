@@ -12,3 +12,8 @@ State transitions and material actions are appended to the audit event table. Ru
 ## Secure environment connector
 
 Remote environments use an outbound-only HTTP polling protocol designed for HTTPS transport. Enrollment tokens are single-use and short-lived. Each runtime generates an Ed25519 device identity; requests are signed with timestamped nonces, and the control plane signs expiring, capability-scoped commands with its own persistent key. SQLite uniqueness constraints make telemetry idempotent across reconnects. Revocation disables the device, cancels pending commands, and marks its dedicated Manager offline. No inbound runtime debugging port is opened.
+
+
+## Active browser bridge
+
+The Manifest V3 browser extension establishes a separate outbound, tab-scoped session after a user supplies a short-lived one-time pairing token. It generates its own Ed25519 identity and signs every poll and event batch. Browser commands are allowlisted, durable, Manager-owned, and limited to the consented tab ID. The extension requests no cookie permission, filters downloads to the approved tab origin, blocks sensitive-field typing, masks sensitive fields in screenshots, and redacts observations again at the control plane. Disconnect or revocation invalidates authentication and cancels pending commands immediately.

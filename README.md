@@ -89,11 +89,23 @@ npm run runtime -- --server https://your-atlas-host.example --token ONE_TIME_TOK
 
 Remote control-plane URLs must use HTTPS. Loopback HTTP is accepted only for local development. The runtime makes outbound requests only, buffers telemetry across disconnections, verifies every command signature and expiry, and can be revoked from the dashboard.
 
+## Active browser bridge
+
+ATLAS includes a consent-based Chrome extension in `browser-extension/`:
+
+1. Open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked**.
+2. Select the repository's `browser-extension` directory.
+3. In the ATLAS **Browser** dashboard, create a pairing token for an environment.
+4. Open the extension on the exact tab you approve, enter the ATLAS URL and one-time token, then connect.
+5. A persistent **ON** badge shows access. Use the extension or dashboard to disconnect immediately.
+
+The extension has no cookie permission, never shares unrelated tabs, refuses sensitive-field typing, redacts DOM values, masks sensitive inputs before screenshots, and accepts actions only through the tab's environment Manager.
+
 ## Honest bootstrap limits
 
 - The remote runtime currently executes the built-in `ping` and `inspect` protocol commands. Broader remote tools must be added through explicit capability-scoped providers.
 - Public internet hosting, user authentication, and TLS termination are M7/M9 concerns; M3 requires an existing HTTPS control-plane URL for internet-connected environments.
-- Browser automation is exposed as a provider boundary and shown as unconfigured until a browser provider is installed.
+- The browser extension must be loaded into Chrome once by the user; browsers intentionally require this physical consent step. Chrome Web Store packaging and signing remain an M9 distribution task.
 - Workflow observation is represented and persisted as a learning mode; recording desktop demonstrations requires a future OS-specific capture provider.
 - Financial, messaging, and other business integrations are intentionally not hard-coded into the platform.
 - The scheduler runs while the ATLAS process is running. Production always-on use requires running it as an OS service.

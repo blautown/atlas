@@ -15,6 +15,7 @@
       <button class="nav active" data-view="overview"><strong>Overview</strong><small>Capacity and attention</small></button>
       <button class="nav" data-view="environments"><strong>Environments</strong><small>Machines and Managers</small></button>
       <button class="nav" data-view="workforce"><strong>Work</strong><small>Agents and execution</small></button>
+      <button class="nav" data-view="browser"><strong>Browser</strong><small>Approved active tabs</small></button>
       <p class="nav-label">Build and govern</p>
       <button class="nav" data-view="development"><strong>Roadmap</strong><small>Evolve the platform</small></button>
       <button class="nav" data-view="audit"><strong>Governance</strong><small>Approvals and history</small></button>
@@ -68,6 +69,15 @@
       </div>
       <div class="grid two"><article><div class="article-head"><h2>Agent registry</h2><span class="count" id="agentCount">0</span></div><div id="agentList"></div></article><article><div class="article-head"><h2>Learned workflows</h2><span class="count" id="workflowCount">0</span></div><div id="workflowList"></div></article></div>
       <article><div class="article-head"><h2>Execution history</h2><span class="count" id="runCount">0</span></div><div id="runList"></div></article>
+    </section>
+
+    <section id="browser" class="view">
+      <div class="page-intro"><div><h2>Browser sessions</h2><p>Connect one explicitly approved active tab. ATLAS cannot access cookies, passwords, or unrelated tabs.</p></div></div>
+      <div class="grid two">
+        <article><p class="section-kicker">PAIR</p><h2>Connect an active tab</h2><ol><li>In Chrome, open <code>chrome://extensions</code> and enable Developer mode.</li><li>Load the repository's <code>browser-extension</code> folder as an unpacked extension.</li><li>Create a pairing token below, then open the extension on the chosen tab.</li></ol><form id="browserPairingForm"><label>Environment<select name="environmentId" id="browserEnvironment"></select></label><button type="submit">Create 10-minute pairing token</button></form><div id="browserPairingResult"></div></article>
+        <article><div class="article-head"><div><p class="section-kicker">CONSENT</p><h2>Connected tabs</h2></div><span class="count" id="browserCount">0</span></div><div id="browserSessionList"></div></article>
+      </div>
+      <article><p class="section-kicker">MANAGER TOOLS</p><h2>Operate the approved tab</h2><form id="browserActionForm"><label>Session<select name="sessionId" id="browserSession"></select></label><label>Action<select name="action"><option value="inspect">Inspect DOM and accessibility</option><option value="screenshot">Capture visible screenshot</option><option value="errors">Read page errors</option><option value="downloads">Inspect tab-related downloads</option><option value="click">Click selector</option><option value="type">Type into non-sensitive field</option><option value="select">Select option</option><option value="scroll">Scroll</option><option value="navigate">Navigate</option></select></label><label>Selector / URL<input name="target" placeholder="#submit or https://example.com"></label><label>Text / value<input name="value" placeholder="Value for type or select"></label><button type="submit">Send through Manager</button></form><div id="browserEventList"></div></article>
     </section>
 
     <section id="development" class="view">

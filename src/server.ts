@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Atlas } from "./atlas.js";
 import { AtlasDatabase } from "./db.js";
 import { ConnectorService, type DeviceAuth } from "./connector.js";
+import { BrowserBridgeService, type BrowserAuth } from "./browser-bridge.js";
 import { createModelProvider, LocalExecutionBackend } from "./providers.js";
 import { SettingsService } from "./settings.js";
 import { safeError } from "./util.js";
@@ -18,6 +19,7 @@ const initialModel = createModelProvider({ provider: initialSettings.provider, m
 const execution = new LocalExecutionBackend();
 export const atlas = new Atlas(database, initialModel, execution, root);
 export const connector = new ConnectorService(database, root);
+export const browserBridge = new BrowserBridgeService(database);
 
 async function body(request: IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
@@ -34,6 +36,12 @@ function deviceAuth(request: IncomingMessage): DeviceAuth {
   return JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as DeviceAuth;
 }
 
+function browserAuth(request: IncomingMessage): BrowserAuth {
+  const encoded=request.headers["x-atlas-browser-auth"];
+  if(typeof encoded!=="string")throw new Error("Browser authentication header is required.");
+  return JSON.parse(Buffer.from(encoded,"base64url").toString("utf8")) as BrowserAuth;
+}
+
 function send(response: ServerResponse, status: number, value: unknown): void {
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(value));
@@ -41,6 +49,15 @@ function send(response: ServerResponse, status: number, value: unknown): void {
 
 async function api(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
   if (!url.pathname.startsWith("/api/")) return false;
+  if(request.method==="POST"&&url.pathname==="/api/browser/pairings"){send(response,201,browserBridge.createPairing(await body(request)));return true;}
+  if(request.method==="POST"&&url.pathname==="/api/browser/pair"){send(response,201,browserBridge.pair(await body(request)));return true;}
+  if(request.method==="POST"&&url.pathname==="/api/browser/poll"){await body(request);send(response,200,browserBridge.poll(browserAuth(request)));return true;}
+  if(request.method==="POST"&&url.pathname==="/api/browser/events"){const input=await body(request);send(response,200,browserBridge.events(browserAuth(request),input));return true;}
+  if(request.method==="POST"&&url.pathname==="/api/browser/disconnect"){await body(request);const auth=browserAuth(request);browserBridge.authenticate(auth,{});send(response,200,browserBridge.disconnect(auth.sessionId));return true;}
+  if(request.method==="POST"&&url.pathname==="/api/browser/commands"){send(response,202,browserBridge.queue(await body(request)));return true;}
+  const browserRevoke=url.pathname.match(/^\/api\/browser\/sessions\/([^/]+)\/revoke$/);
+  if(request.method==="POST"&&browserRevoke?.[1]){send(response,200,browserBridge.disconnect(browserRevoke[1],"revoked"));return true;}
+  if(request.method==="GET"&&url.pathname==="/api/browser"){send(response,200,browserBridge.state());return true;}
   if (request.method === "POST" && url.pathname === "/api/connectors/enrollment") { send(response, 201, connector.createEnrollment(await body(request))); return true; }
   if (request.method === "POST" && url.pathname === "/api/connectors/enroll") { const input=await body(request); const result=connector.enroll(input); atlas.audit("environment",result.environmentId,"environment.enrolled","environment",result.environmentId,{deviceId:result.deviceId}); send(response, 201, result); return true; }
   if (request.method === "POST" && url.pathname === "/api/connectors/poll") { await body(request); send(response, 200, connector.poll(deviceAuth(request))); return true; }
@@ -84,7 +101,7 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
     return true;
   }
   if (request.method === "GET" && url.pathname === "/api/state") {
-    send(response, 200, { ...atlas.state(), connector: connector.state() });
+    const base=atlas.state(); send(response, 200, { ...base, providers: { ...(base.providers as Record<string, unknown>), browser: "extension-bridge" }, connector: connector.state(), browser: browserBridge.state() });
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/environments") {
@@ -155,6 +172,9 @@ const contentTypes: Record<string, string> = {
 async function handler(request: IncomingMessage, response: ServerResponse): Promise<void> {
   try {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+    const origin=request.headers.origin;
+    if(typeof origin==="string"&&origin.startsWith("chrome-extension://")){response.setHeader("Access-Control-Allow-Origin",origin);response.setHeader("Access-Control-Allow-Headers","content-type,x-atlas-browser-auth");response.setHeader("Access-Control-Allow-Methods","GET,POST,OPTIONS");}
+    if(request.method==="OPTIONS"){response.writeHead(204);response.end();return;}
     if (await api(request, response, url)) return;
     const requested = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
     const file = path.resolve(publicDir, requested);

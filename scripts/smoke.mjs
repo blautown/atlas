@@ -3,6 +3,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createHash, generateKeyPairSync, randomUUID, sign } from "node:crypto";
 
 const port = 4311;
 let runtimeChild;
@@ -76,7 +77,21 @@ try {
   if (connectorEvent?.type !== "command.completed") throw new Error("Signed remote command did not complete.");
   const revokeResponse = await fetch(`http://127.0.0.1:${port}/api/connectors/environments/${enrollment.environmentId}/revoke`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
   if (!revokeResponse.ok || (await revokeResponse.json()).status !== "revoked") throw new Error("Remote runtime revocation failed.");
-  console.log("Smoke test passed: M1 execution, M2 settings, and M3 outbound enrollment, signed command, telemetry, and revocation.");
+  const browserPairing = await fetch(`http://127.0.0.1:${port}/api/browser/pairings`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ environmentId: environment.id }) }).then((response) => response.json());
+  const browserKeys = generateKeyPairSync("ed25519"), browserPublic = browserKeys.publicKey.export({ type: "spki", format: "pem" }).toString(), browserPrivate = browserKeys.privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  const browserSession = await fetch(`http://127.0.0.1:${port}/api/browser/pair`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: browserPairing.token, publicKey: browserPublic, tabRef: "smoke-tab", title: "Approved smoke tab", url: "https://example.com/task" }) }).then((response) => response.json());
+  const manager = state.managers.find((item) => item.environment_id === environment.id);
+  const browserCommand = await fetch(`http://127.0.0.1:${port}/api/browser/commands`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: browserSession.sessionId, managerId: manager.id, action: "inspect", args: {} }) }).then((response) => response.json());
+  const browserAuth = (body) => { const timestamp = new Date().toISOString(), nonce = randomUUID(), digest = createHash("sha256").update(JSON.stringify(body ?? {})).digest("hex"); return Buffer.from(JSON.stringify({ sessionId: browserSession.sessionId, timestamp, nonce, signature: sign(null, Buffer.from([browserSession.sessionId, timestamp, nonce, digest].join("\n")), browserPrivate).toString("base64url") })).toString("base64url"); };
+  const browserPoll = await fetch(`http://127.0.0.1:${port}/api/browser/poll`, { method: "POST", headers: { "Content-Type": "application/json", "x-atlas-browser-auth": browserAuth({}) }, body: "{}" }).then((response) => response.json());
+  if (browserPoll.commands[0]?.id !== browserCommand.id) throw new Error("Approved-tab browser command was not delivered.");
+  const browserEvents = { events: [{ id: randomUUID(), commandId: browserCommand.id, type: "command.completed", payload: { password: "must-redact", title: "safe" }, occurredAt: new Date().toISOString() }] };
+  await fetch(`http://127.0.0.1:${port}/api/browser/events`, { method: "POST", headers: { "Content-Type": "application/json", "x-atlas-browser-auth": browserAuth(browserEvents) }, body: JSON.stringify(browserEvents) });
+  await fetch(`http://127.0.0.1:${port}/api/browser/sessions/${browserSession.sessionId}/revoke`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  const browserState = await fetch(`http://127.0.0.1:${port}/api/browser`).then((response) => response.json());
+  if (browserState.sessions.find((item) => item.id === browserSession.sessionId)?.status !== "revoked") throw new Error("Browser session revocation failed.");
+  if (JSON.parse(browserState.events.find((item) => item.command_id === browserCommand.id).payload_json).password !== "[REDACTED]") throw new Error("Browser event redaction failed.");
+  console.log("Smoke test passed: M1 execution, M2 settings, M3 remote runtime, and M4 approved-tab browser isolation and revocation.");
 } finally {
   runtimeChild?.kill();
   child.kill();

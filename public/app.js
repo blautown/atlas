@@ -91,6 +91,14 @@ function render() {
   $("#approvalCount").textContent = pending.length;
   $("#auditCount").textContent = state.audit.length;
 
+  const browserState = state.browser ?? { sessions: [], commands: [], events: [] };
+  const browserSessions = browserState.sessions ?? [];
+  $("#browserCount").textContent = browserSessions.filter((session) => session.status === "connected").length;
+  $("#browserSessionList").innerHTML = browserSessions.length ? list(browserSessions.map((session) => `<div class="item"><div class="item-head"><div><strong>${esc(session.title)}</strong><small>${esc(session.url)} · consented ${fmt(session.consented_at)}</small></div>${badge(session.status)}</div>${session.status === "connected" ? `<div class="actions"><button class="danger" data-browser-revoke="${esc(session.id)}">Disconnect and revoke</button></div>` : ""}</div>`)) : empty("No browser tabs connected", "Create a pairing token, then approve the active tab in the ATLAS extension.");
+  $("#browserEnvironment").innerHTML = state.environments.map((env) => `<option value="${esc(env.id)}">${esc(env.name)}</option>`).join("");
+  $("#browserSession").innerHTML = browserSessions.filter((session) => session.status === "connected").map((session) => `<option value="${esc(session.id)}">${esc(session.title)}</option>`).join("");
+  $("#browserEventList").innerHTML = browserState.events?.length ? list(browserState.events.slice(0, 20).map((event) => `<div class="item compact"><strong>${esc(event.type)}</strong><small>${fmt(event.received_at)}</small><details><summary>Observation</summary><div class="pre">${esc(event.payload_json)}</div></details></div>`)) : empty("No browser observations yet", "Send an inspect or screenshot action through the tab's Manager.");
+
   const roadmap = state.roadmap ?? { milestones: [] };
   $("#roadmapPurpose").textContent = roadmap.purpose ?? "Roadmap unavailable.";
   $("#roadmapList").innerHTML = roadmap.milestones?.length ? `<div class="roadmap">${roadmap.milestones.map((milestone, index) => `<div class="roadmap-item">
@@ -235,6 +243,7 @@ function bindDynamic() {
     if (button.dataset.roadmapAction === "implement") await sendCodingAgent(prompt);
     else await sendChat(prompt);
   });
+  document.querySelectorAll("[data-browser-revoke]").forEach((button) => button.onclick = async () => { if(!window.confirm("Disconnect and permanently revoke this browser session?"))return;try{await request(`/api/browser/sessions/${button.dataset.browserRevoke}/revoke`,{method:"POST",body:"{}"});notice("Browser session revoked.");await refresh();}catch(error){notice(error.message,true);} });
   document.querySelectorAll("[data-revoke-environment]").forEach((button) => button.onclick = async () => { if(!window.confirm("Revoke this environment? Its runtime will immediately lose command access."))return; try{await request(`/api/connectors/environments/${button.dataset.revokeEnvironment}/revoke`,{method:"POST",body:"{}"});notice("Environment access revoked.");await refresh();}catch(error){notice(error.message,true);} });
   document.querySelectorAll("[data-secret-rotate]").forEach((button) => button.onclick = async () => { const value=window.prompt("Paste the replacement secret. It will be encrypted immediately."); if(!value)return; try{await request(`/api/settings/secrets/${button.dataset.secretRotate}/rotate`,{method:"POST",body:JSON.stringify({value})});notice("Secret reference rotated.");await refresh();}catch(error){notice(error.message,true);} });
   document.querySelectorAll("[data-secret-revoke]").forEach((button) => button.onclick = async () => { try{await request(`/api/settings/secrets/${button.dataset.secretRevoke}/revoke`,{method:"POST",body:"{}"});notice("Secret reference revoked.");await refresh();}catch(error){notice(error.message,true);} });
@@ -280,6 +289,7 @@ const viewMeta = {
   overview: ["Overview", "System capacity, activity, and anything that needs you."],
   environments: ["Environments", "Connect execution targets and work with their dedicated Managers."],
   workforce: ["Work", "Create agents, deploy tasks, and follow execution."],
+  browser: ["Browser", "Connect and supervise explicitly approved active tabs."],
   development: ["Roadmap", "Guide the safe evolution of ATLAS from inside ATLAS."],
   audit: ["Governance", "Approve sensitive actions and inspect the activity trail."],
   settings: ["Settings", "Configure providers, permissions, diagnostics, and backups."]
@@ -335,6 +345,8 @@ $("#minimiseMessenger").onclick = () => $("#messenger").classList.add("hidden");
 $("#closeMessenger").onclick = () => $("#messenger").classList.add("hidden");
 $("#environmentForm").onsubmit = (event) => { event.preventDefault(); submit(event.currentTarget, "/api/environments", "Environment connected and Manager assigned."); };
 $("#remoteEnrollmentForm").onsubmit = async (event) => { event.preventDefault(); const form=event.currentTarget; try{const result=await request("/api/connectors/enrollment",{method:"POST",body:JSON.stringify(formObject(form))});const origin=location.origin;$("#enrollmentResult").innerHTML=`<div class="item"><strong>Enrollment ready for 15 minutes</strong><small>On the remote machine, clone/install ATLAS and run:</small><div class="pre">npm run runtime -- --server ${esc(origin)} --token ${esc(result.token)}</div><small>The token works once. Remote internet connections require an HTTPS ATLAS URL.</small></div>`;notice("Dedicated Manager created; waiting for the remote runtime.");await refresh();}catch(error){notice(error.message,true);} };
+$("#browserPairingForm").onsubmit = async (event) => { event.preventDefault();try{const result=await request("/api/browser/pairings",{method:"POST",body:JSON.stringify(formObject(event.currentTarget))});$("#browserPairingResult").innerHTML=`<div class="item"><strong>Pairing token</strong><div class="pre">${esc(result.token)}</div><small>Expires ${fmt(result.expiresAt)}. Open the ATLAS extension on the exact tab you approve and paste this token.</small></div>`;notice("Browser pairing token created.");}catch(error){notice(error.message,true);} };
+$("#browserActionForm").onsubmit = async (event) => { event.preventDefault();const data=formObject(event.currentTarget),session=(state.browser?.sessions??[]).find(item=>item.id===data.sessionId);if(!session)return notice("Connect an approved tab first.",true);const args=data.action==="navigate"?{url:data.target}:data.action==="scroll"?{y:Number(data.value||500)}:{selector:data.target,...(["type","select"].includes(data.action)?{[data.action==="type"?"text":"value"]:data.value}:{})};try{await request("/api/browser/commands",{method:"POST",body:JSON.stringify({sessionId:session.id,managerId:session.manager_id,action:data.action,args})});notice("Browser action queued through the environment Manager.");await refresh();}catch(error){notice(error.message,true);} };
 $("#agentForm").onsubmit = (event) => { event.preventDefault(); submit(event.currentTarget, "/api/agents", "Persistent agent created."); };
 $("#runForm").onsubmit = (event) => { event.preventDefault(); submit(event.currentTarget, "/api/runs", "Temporary agent deployed through its Manager."); };
 $("#runDiskSpace").onclick = async () => {
