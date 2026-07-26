@@ -69,7 +69,7 @@
     {
       "id": "M3",
       "title": "Secure environment connector protocol",
-      "status": "planned",
+      "status": "completed",
       "objective": "Separate environment execution from the control plane so local and remote physical environments can be enrolled safely.",
       "deliverables": [
         "Installable environment runtime",
@@ -83,6 +83,14 @@
         "A second computer can be enrolled without opening an inbound debugging or command port.",
         "ATLAS can revoke the environment and prevent further commands.",
         "Interrupted connections recover without losing or duplicating execution events."
+      ],
+      "completionEvidence": [
+        "Dashboard creates a single-use 15-minute enrollment token and exactly one waiting Manager.",
+        "The installable atlas-runtime opens only outbound HTTPS connections and persists its identity and offline event buffer.",
+        "Ed25519 device authentication, signed control-plane commands, expiring capability grants, timestamp windows, and nonce replay protection are enforced.",
+        "Telemetry event IDs are idempotent across reconnects; command state and health are durable in SQLite.",
+        "Revocation immediately blocks polling and new commands, cancels pending delivery, and takes the Manager offline.",
+        "A separate-process smoke run enrolled a runtime, completed a signed inspect command, returned telemetry, and was revoked successfully."
       ]
     },
     {

@@ -1,7 +1,11 @@
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 const port = 4311;
+let runtimeChild;
 const child = spawn(process.execPath, ["--env-file-if-exists=.env.local", "dist/src/server.js"], {
   env: { ...process.env, PORT: String(port), ATLAS_DB_PATH: "data/smoke.db" },
   stdio: ["ignore", "pipe", "pipe"],
@@ -57,7 +61,23 @@ try {
   const backupResponse = await fetch(`http://127.0.0.1:${port}/api/settings/backups`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
   const backup = await backupResponse.json();
   if (backup.status !== "verified") throw new Error("Dashboard backup was not verified.");
-  console.log("Smoke test passed: M1 execution plus M2 settings, diagnostics, secret-safe API, and verified backup.");
+  const enrollmentResponse = await fetch(`http://127.0.0.1:${port}/api/connectors/enrollment`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: `Smoke Remote ${Date.now()}` }) });
+  if (!enrollmentResponse.ok) throw new Error(await enrollmentResponse.text());
+  const enrollment = await enrollmentResponse.json();
+  const runtimeDir = await mkdtemp(path.join(tmpdir(), "atlas-runtime-smoke-"));
+  runtimeChild = spawn(process.execPath, ["dist/src/runtime.js", "--server", `http://127.0.0.1:${port}`, "--token", enrollment.token, "--data", runtimeDir, "--interval", "100"], { stdio: "ignore", windowsHide: true });
+  let connected;
+  for (let attempt = 0; attempt < 30; attempt++) { const connectorState = await fetch(`http://127.0.0.1:${port}/api/connectors`).then((response) => response.json()); connected = connectorState.devices.find((device) => device.environment_id === enrollment.environmentId); if (connected) break; await delay(100); }
+  if (!connected) throw new Error("Remote runtime did not enroll.");
+  const commandResponse = await fetch(`http://127.0.0.1:${port}/api/connectors/commands`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ environmentId: enrollment.environmentId, type: "inspect", capabilities: ["system.inspect"], ttlSeconds: 30 }) });
+  if (!commandResponse.ok) throw new Error(await commandResponse.text()); const command = await commandResponse.json();
+  let connectorEvent;
+  for (let attempt = 0; attempt < 40; attempt++) { const connectorState = await fetch(`http://127.0.0.1:${port}/api/connectors`).then((response) => response.json()); connectorEvent = connectorState.events.find((event) => event.command_id === command.id); if (connectorEvent) break; await delay(100); }
+  if (connectorEvent?.type !== "command.completed") throw new Error("Signed remote command did not complete.");
+  const revokeResponse = await fetch(`http://127.0.0.1:${port}/api/connectors/environments/${enrollment.environmentId}/revoke`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  if (!revokeResponse.ok || (await revokeResponse.json()).status !== "revoked") throw new Error("Remote runtime revocation failed.");
+  console.log("Smoke test passed: M1 execution, M2 settings, and M3 outbound enrollment, signed command, telemetry, and revocation.");
 } finally {
+  runtimeChild?.kill();
   child.kill();
 }

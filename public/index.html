@@ -46,10 +46,15 @@
           <p class="section-kicker">ADD CAPACITY</p><h2>Connect an environment</h2>
           <form id="environmentForm">
             <label>Name<input name="name" required placeholder="Primary workstation"></label>
-            <label>Execution target<select name="kind"><option value="local">This computer</option><option value="cloud">Cloud runtime endpoint</option></select></label>
-            <label>Cloud endpoint <span>only needed for cloud targets</span><input name="endpoint" placeholder="https://runtime.example.com"></label>
-            <button type="submit">Connect and assign Manager</button>
+            <input type="hidden" name="kind" value="local">
+            <button type="submit">Connect this computer</button>
           </form>
+          <hr>
+          <form id="remoteEnrollmentForm">
+            <label>Remote machine name<input name="name" required placeholder="Office workstation"></label>
+            <button type="submit">Create secure enrollment</button>
+          </form>
+          <div id="enrollmentResult"></div>
         </article>
         <article><div class="article-head"><div><p class="section-kicker">CONNECTED</p><h2>Environment fleet</h2></div><span class="count" id="environmentCount">0</span></div><div id="environmentList"></div></article>
       </div>

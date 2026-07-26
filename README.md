@@ -79,9 +79,20 @@ The Development Assistant view presents roadmap milestones with **Discuss** and 
 
 ADA is the user-facing guide across ATLAS and can explain live state or prepare a governed handoff to an environment Manager or the Development Assistant. Operational agents never communicate directly with the user. Environment Managers are the operational reporting and supervision boundary. ADA's coding agent has no direct user interface and can only change ATLAS through repository-scoped actions and user-approved checks/writes; its reports return through ADA.
 
+## Remote environment runtime
+
+From **Environments**, create a secure remote enrollment. On the target computer, install or clone this ATLAS package, run `npm install && npm run build`, then use the one-time command shown by the dashboard. For example:
+
+```powershell
+npm run runtime -- --server https://your-atlas-host.example --token ONE_TIME_TOKEN
+```
+
+Remote control-plane URLs must use HTTPS. Loopback HTTP is accepted only for local development. The runtime makes outbound requests only, buffers telemetry across disconnections, verifies every command signature and expiry, and can be revoked from the dashboard.
+
 ## Honest bootstrap limits
 
-- The bundled execution backend is local. Cloud onboarding stores and health-checks a runtime endpoint, but a separately deployed remote runtime is not included.
+- The remote runtime currently executes the built-in `ping` and `inspect` protocol commands. Broader remote tools must be added through explicit capability-scoped providers.
+- Public internet hosting, user authentication, and TLS termination are M7/M9 concerns; M3 requires an existing HTTPS control-plane URL for internet-connected environments.
 - Browser automation is exposed as a provider boundary and shown as unconfigured until a browser provider is installed.
 - Workflow observation is represented and persisted as a learning mode; recording desktop demonstrations requires a future OS-specific capture provider.
 - Financial, messaging, and other business integrations are intentionally not hard-coded into the platform.

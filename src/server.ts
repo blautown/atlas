@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Atlas } from "./atlas.js";
 import { AtlasDatabase } from "./db.js";
+import { ConnectorService, type DeviceAuth } from "./connector.js";
 import { createModelProvider, LocalExecutionBackend } from "./providers.js";
 import { SettingsService } from "./settings.js";
 import { safeError } from "./util.js";
@@ -16,6 +17,7 @@ const initialSettings = (settings.state() as any).setting;
 const initialModel = createModelProvider({ provider: initialSettings.provider, model: initialSettings.model, baseUrl: initialSettings.base_url, apiKey: settings.getSecret(initialSettings.secret_ref_id), timeoutMs: initialSettings.timeout_ms });
 const execution = new LocalExecutionBackend();
 export const atlas = new Atlas(database, initialModel, execution, root);
+export const connector = new ConnectorService(database, root);
 
 async function body(request: IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
@@ -26,6 +28,12 @@ async function body(request: IncomingMessage): Promise<any> {
   return value;
 }
 
+function deviceAuth(request: IncomingMessage): DeviceAuth {
+  const encoded = request.headers["x-atlas-device-auth"];
+  if (typeof encoded !== "string") throw new Error("Device authentication header is required.");
+  return JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as DeviceAuth;
+}
+
 function send(response: ServerResponse, status: number, value: unknown): void {
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(value));
@@ -33,6 +41,14 @@ function send(response: ServerResponse, status: number, value: unknown): void {
 
 async function api(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
   if (!url.pathname.startsWith("/api/")) return false;
+  if (request.method === "POST" && url.pathname === "/api/connectors/enrollment") { send(response, 201, connector.createEnrollment(await body(request))); return true; }
+  if (request.method === "POST" && url.pathname === "/api/connectors/enroll") { const input=await body(request); const result=connector.enroll(input); atlas.audit("environment",result.environmentId,"environment.enrolled","environment",result.environmentId,{deviceId:result.deviceId}); send(response, 201, result); return true; }
+  if (request.method === "POST" && url.pathname === "/api/connectors/poll") { await body(request); send(response, 200, connector.poll(deviceAuth(request))); return true; }
+  if (request.method === "POST" && url.pathname === "/api/connectors/telemetry") { const input=await body(request); send(response, 200, connector.telemetry(deviceAuth(request),input)); return true; }
+  if (request.method === "POST" && url.pathname === "/api/connectors/commands") { const result=connector.queueCommand(await body(request)); atlas.audit("manager",null,"connector.command.queued","environment",result.environmentId,{commandId:result.id,type:result.type,capabilities:result.capabilities}); send(response, 202, result); return true; }
+  const revokeMatch=url.pathname.match(/^\/api\/connectors\/environments\/([^/]+)\/revoke$/);
+  if(request.method==="POST"&&revokeMatch?.[1]){const result=connector.revoke(revokeMatch[1]);atlas.audit("user",null,"environment.revoked","environment",revokeMatch[1],{});send(response,200,result);return true;}
+  if (request.method === "GET" && url.pathname === "/api/connectors") { send(response, 200, connector.state()); return true; }
   if (request.method === "GET" && url.pathname === "/api/settings") { send(response, 200, settings.state()); return true; }
   if (request.method === "POST" && url.pathname === "/api/settings/provider") {
     const saved = settings.saveProvider(await body(request));
@@ -68,7 +84,7 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
     return true;
   }
   if (request.method === "GET" && url.pathname === "/api/state") {
-    send(response, 200, atlas.state());
+    send(response, 200, { ...atlas.state(), connector: connector.state() });
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/environments") {
@@ -160,7 +176,7 @@ export function start(
   host = process.env.ATLAS_HOST ?? "127.0.0.1"
 ) {
   const server = createServer(handler);
-  const interval = setInterval(() => void atlas.tick().catch((error) => console.error("Scheduler:", safeError(error))), 15_000);
+  const interval = setInterval(() => { connector.tick(); void atlas.tick().catch((error) => console.error("Scheduler:", safeError(error))); }, 15_000);
   server.on("close", () => clearInterval(interval));
   server.listen(port, host, () => {
     const displayHost = host === "0.0.0.0" ? "your computer's local-network address" : host;

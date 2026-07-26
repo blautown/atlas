@@ -56,10 +56,15 @@ function render() {
     ["Needs attention", state.approvals.filter((a) => a.status === "pending").length, "Pending your decision"]
   ].map(([label, value, detail]) => `<div class="metric"><span>${esc(label)}</span><strong>${esc(value)}</strong><small>${esc(detail)}</small></div>`).join("");
 
-  const envItems = state.environments.map((env) => `<div class="item">
-    <div class="item-head"><div><strong>${esc(env.name)}</strong><small>${esc(env.kind)} environment</small></div>${badge(env.status)}</div>
-    <div class="manager-row"><div><span class="mini-avatar">${esc(initials(env.manager_name))}</span><span><strong>${esc(env.manager_name)}</strong><small>Dedicated AI Manager · ${esc(env.manager_status)}</small></span></div><button data-chat-kind="manager" data-owner="${esc(env.manager_id)}">Message</button></div>
-  </div>`);
+  const connectorDevices = state.connector?.devices ?? [];
+  const envItems = state.environments.map((env) => {
+    const device = connectorDevices.find((item) => item.environment_id === env.id);
+    return `<div class="item">
+      <div class="item-head"><div><strong>${esc(env.name)}</strong><small>${esc(env.kind)} environment</small></div>${badge(env.status)}</div>
+      <div class="manager-row"><div><span class="mini-avatar">${esc(initials(env.manager_name))}</span><span><strong>${esc(env.manager_name)}</strong><small>Dedicated AI Manager · ${esc(env.manager_status)}</small></span></div><button data-chat-kind="manager" data-owner="${esc(env.manager_id)}">Message</button></div>
+      ${device?.status === "active" ? `<div class="actions"><button class="danger" data-revoke-environment="${esc(env.id)}">Revoke remote access</button></div>` : ""}
+    </div>`;
+  });
   $("#environmentSummary").innerHTML = envItems.length ? list(envItems.slice(0, 3)) : empty("No environments connected", "Connect this computer to create your first managed workspace.");
   $("#environmentList").innerHTML = envItems.length ? list(envItems) : empty("No environments connected", "Use the form to connect this computer or a cloud runtime.");
   $("#environmentCount").textContent = state.environments.length;
@@ -230,6 +235,7 @@ function bindDynamic() {
     if (button.dataset.roadmapAction === "implement") await sendCodingAgent(prompt);
     else await sendChat(prompt);
   });
+  document.querySelectorAll("[data-revoke-environment]").forEach((button) => button.onclick = async () => { if(!window.confirm("Revoke this environment? Its runtime will immediately lose command access."))return; try{await request(`/api/connectors/environments/${button.dataset.revokeEnvironment}/revoke`,{method:"POST",body:"{}"});notice("Environment access revoked.");await refresh();}catch(error){notice(error.message,true);} });
   document.querySelectorAll("[data-secret-rotate]").forEach((button) => button.onclick = async () => { const value=window.prompt("Paste the replacement secret. It will be encrypted immediately."); if(!value)return; try{await request(`/api/settings/secrets/${button.dataset.secretRotate}/rotate`,{method:"POST",body:JSON.stringify({value})});notice("Secret reference rotated.");await refresh();}catch(error){notice(error.message,true);} });
   document.querySelectorAll("[data-secret-revoke]").forEach((button) => button.onclick = async () => { try{await request(`/api/settings/secrets/${button.dataset.secretRevoke}/revoke`,{method:"POST",body:"{}"});notice("Secret reference revoked.");await refresh();}catch(error){notice(error.message,true);} });
   document.querySelectorAll("[data-run-control]").forEach((button) => button.onclick = async () => {
@@ -328,6 +334,7 @@ $("#openDevChat").onclick = () => openChat("ada", "ada");
 $("#minimiseMessenger").onclick = () => $("#messenger").classList.add("hidden");
 $("#closeMessenger").onclick = () => $("#messenger").classList.add("hidden");
 $("#environmentForm").onsubmit = (event) => { event.preventDefault(); submit(event.currentTarget, "/api/environments", "Environment connected and Manager assigned."); };
+$("#remoteEnrollmentForm").onsubmit = async (event) => { event.preventDefault(); const form=event.currentTarget; try{const result=await request("/api/connectors/enrollment",{method:"POST",body:JSON.stringify(formObject(form))});const origin=location.origin;$("#enrollmentResult").innerHTML=`<div class="item"><strong>Enrollment ready for 15 minutes</strong><small>On the remote machine, clone/install ATLAS and run:</small><div class="pre">npm run runtime -- --server ${esc(origin)} --token ${esc(result.token)}</div><small>The token works once. Remote internet connections require an HTTPS ATLAS URL.</small></div>`;notice("Dedicated Manager created; waiting for the remote runtime.");await refresh();}catch(error){notice(error.message,true);} };
 $("#agentForm").onsubmit = (event) => { event.preventDefault(); submit(event.currentTarget, "/api/agents", "Persistent agent created."); };
 $("#runForm").onsubmit = (event) => { event.preventDefault(); submit(event.currentTarget, "/api/runs", "Temporary agent deployed through its Manager."); };
 $("#runDiskSpace").onclick = async () => {

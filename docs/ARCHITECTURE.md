@@ -7,3 +7,8 @@ Provider boundaries keep model generation, command execution, and browser operat
 The Development Assistant receives a repository inventory, creates structured actions, and requires HITL approval before writes or command execution. Paths are confined to the repository. Secrets are referenced through environment variables and excluded from source control.
 
 State transitions and material actions are appended to the audit event table. Runs retain results or errors, and temporary agents are retired after terminal execution. The scheduler refreshes local health and starts due interval workflows.
+
+
+## Secure environment connector
+
+Remote environments use an outbound-only HTTP polling protocol designed for HTTPS transport. Enrollment tokens are single-use and short-lived. Each runtime generates an Ed25519 device identity; requests are signed with timestamped nonces, and the control plane signs expiring, capability-scoped commands with its own persistent key. SQLite uniqueness constraints make telemetry idempotent across reconnects. Revocation disables the device, cancels pending commands, and marks its dedicated Manager offline. No inbound runtime debugging port is opened.
