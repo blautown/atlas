@@ -29,7 +29,7 @@ npm install
 npm run dev
 ```
 
-Open <http://127.0.0.1:4310>.
+Open <http://127.0.0.1:4310>. Provider selection, encrypted secret references, diagnostics, backups, and environment permissions are available under **Settings**; `.env.local` is only a bootstrap fallback.
 
 ### Open ATLAS from a phone on the same Wi-Fi
 

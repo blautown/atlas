@@ -42,7 +42,7 @@
     {
       "id": "M2",
       "title": "Dashboard-operated platform settings",
-      "status": "planned",
+      "status": "completed",
       "objective": "Remove normal provider, secret, diagnostic, and runtime configuration work from manual files and terminals.",
       "deliverables": [
         "Settings area for model-provider and model selection",
@@ -56,6 +56,14 @@
         "A non-technical user can configure and test Groq or another provider without editing .env.local.",
         "Secret plaintext is never stored in the application database, prompts, logs, or audit details.",
         "Routine ATLAS administration no longer requires a terminal."
+      ],
+      "completionEvidence": [
+        "Provider and model selection applies immediately from the Settings dashboard.",
+        "AES-256-GCM secret references support create, rotate, test timestamp, and revoke without returning plaintext or ciphertext through APIs.",
+        "Provider health tests return honest status and errors.",
+        "Diagnostics and verified database backups run from the dashboard.",
+        "Environment tool, filesystem, and network permissions are persisted and disk execution enforces the saved tool scope.",
+        "Restart and in-place recovery remain visibly unavailable with actionable M9 explanations."
       ]
     },
     {

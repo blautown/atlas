@@ -4,13 +4,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Atlas } from "./atlas.js";
 import { AtlasDatabase } from "./db.js";
-import { createProviders } from "./providers.js";
+import { createModelProvider, LocalExecutionBackend } from "./providers.js";
+import { SettingsService } from "./settings.js";
 import { safeError } from "./util.js";
 
 const root = process.cwd();
 const publicDir = path.join(root, "public");
-const providers = createProviders();
-export const atlas = new Atlas(new AtlasDatabase(), providers.model, providers.execution, root);
+const database = new AtlasDatabase();
+export const settings = new SettingsService(database, root);
+const initialSettings = (settings.state() as any).setting;
+const initialModel = createModelProvider({ provider: initialSettings.provider, model: initialSettings.model, baseUrl: initialSettings.base_url, apiKey: settings.getSecret(initialSettings.secret_ref_id), timeoutMs: initialSettings.timeout_ms });
+const execution = new LocalExecutionBackend();
+export const atlas = new Atlas(database, initialModel, execution, root);
 
 async function body(request: IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
@@ -28,6 +33,29 @@ function send(response: ServerResponse, status: number, value: unknown): void {
 
 async function api(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
   if (!url.pathname.startsWith("/api/")) return false;
+  if (request.method === "GET" && url.pathname === "/api/settings") { send(response, 200, settings.state()); return true; }
+  if (request.method === "POST" && url.pathname === "/api/settings/provider") {
+    const saved = settings.saveProvider(await body(request));
+    atlas.model = createModelProvider({ provider: saved.provider, model: saved.model, baseUrl: saved.base_url, apiKey: settings.getSecret(saved.secret_ref_id), timeoutMs: saved.timeout_ms });
+    atlas.audit("user", null, "settings.provider.updated", "settings", "default", { provider: saved.provider, model: saved.model });
+    send(response, 200, saved); return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/settings/provider/test") {
+    const selected = (settings.state() as any).setting;
+    const provider = createModelProvider({ provider: selected.provider, model: selected.model, baseUrl: selected.base_url, apiKey: settings.getSecret(selected.secret_ref_id), timeoutMs: selected.timeout_ms });
+    let result: unknown;
+    if (provider.health) result = await provider.health();
+    else { const output = await provider.generate({ system: "Return only READY.", input: "Connection test" }); result = { status: "online", model: provider.model, detail: output.slice(0, 80) }; }
+    settings.markTested(selected.secret_ref_id); atlas.audit("user", null, "settings.provider.tested", "settings", "default", { provider: selected.provider, status: (result as any).status });
+    send(response, 200, result); return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/settings/secrets") { const secret=settings.createSecret(await body(request)); atlas.audit("user",null,"secret.created","secret",secret.id,{provider:secret.provider,label:secret.label}); send(response,201,secret); return true; }
+  const secretMatch=url.pathname.match(/^\/api\/settings\/secrets\/([^/]+)\/(rotate|revoke)$/);
+  if(request.method==="POST"&&secretMatch?.[1]&&secretMatch[2]){const input=await body(request);const secret=secretMatch[2]==="rotate"?settings.rotateSecret(secretMatch[1],input.value):settings.revokeSecret(secretMatch[1]);atlas.audit("user",null,`secret.${secretMatch[2]}d`,"secret",secret.id,{provider:secret.provider,label:secret.label});send(response,200,secret);return true;}
+  if(request.method==="POST"&&url.pathname==="/api/settings/diagnostics"){send(response,200,settings.diagnostics());return true;}
+  if(request.method==="POST"&&url.pathname==="/api/settings/backups"){const backup=settings.createBackup();atlas.audit("user",null,"backup.created","backup",backup.id,{filename:backup.filename,status:backup.status});send(response,201,backup);return true;}
+  const permissionMatch=url.pathname.match(/^\/api\/settings\/environments\/([^/]+)\/permissions$/);
+  if(request.method==="POST"&&permissionMatch?.[1]){const permission=settings.saveEnvironmentPermissions(permissionMatch[1],await body(request));atlas.audit("user",null,"environment.permissions.updated","environment",permissionMatch[1],{tools:JSON.parse(permission.tools_json),filesystemScope:permission.filesystem_scope,networkEnabled:Boolean(permission.network_enabled)});send(response,200,permission);return true;}
   if (request.method === "GET" && url.pathname === "/api/health") {
     send(response, 200, { status: "ok", service: "atlas", time: new Date().toISOString() });
     return true;

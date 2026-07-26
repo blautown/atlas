@@ -1,0 +1,13 @@
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { AtlasDatabase } from "../src/db.js";
+import { SettingsService } from "../src/settings.js";
+
+async function fixture(){const root=await mkdtemp(path.join(tmpdir(),"atlas-settings-"));await mkdir(path.join(root,"migrations"));for(const name of ["001_bootstrap.sql","004_m1_execution.sql","005_m2_settings.sql"])await writeFile(path.join(root,"migrations",name),await readFile(path.join(process.cwd(),"migrations",name)));const previous=process.cwd();process.chdir(root);const db=new AtlasDatabase(path.join(root,"atlas.db"));process.chdir(previous);return{root,db,settings:new SettingsService(db,root)};}
+
+test("secret references encrypt plaintext and support rotate and revoke",async()=>{const{root,db,settings}=await fixture();const plaintext="sk-test-super-secret-value";const secret=settings.createSecret({provider:"groq",label:"Test key",value:plaintext});const stored=db.get<any>("SELECT * FROM secret_references WHERE id=?",secret.id)!;assert.notEqual(stored.ciphertext,plaintext);assert.ok(!JSON.stringify(settings.state()).includes(plaintext));assert.equal(settings.getSecret(secret.id),plaintext);settings.rotateSecret(secret.id,"sk-test-rotated-secret");assert.equal(settings.getSecret(secret.id),"sk-test-rotated-secret");settings.revokeSecret(secret.id);assert.equal(settings.getSecret(secret.id),undefined);assert.equal((await readFile(path.join(root,"data",".atlas-master-key"))).length,32);db.close();});
+
+test("provider settings, permissions, diagnostics, and verified backups are dashboard services",async()=>{const{db,settings}=await fixture();const secret=settings.createSecret({provider:"groq",label:"Primary",value:"test-provider-secret"});const saved=settings.saveProvider({provider:"groq",model:"openai/gpt-oss-20b",secretRefId:secret.id,timeoutMs:30000});assert.equal(saved.provider,"groq");const stamp=new Date().toISOString();db.run("INSERT INTO environments(id,name,kind,status,capabilities_json,health_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)","env-settings","Settings Desktop","local","online","{}","{}",stamp,stamp);const permission=settings.saveEnvironmentPermissions("env-settings",{tools:["system.disk_space","unknown"],filesystemScope:"workspace",networkEnabled:true});assert.deepEqual(JSON.parse(permission.tools_json),["system.disk_space"]);assert.equal(settings.diagnostics().databaseIntegrity,"ok");const backup=settings.createBackup();assert.equal(backup.status,"verified");assert.ok(backup.size_bytes>0);db.close();});

@@ -37,7 +37,7 @@ class FakeExecution implements ExecutionBackend {
 async function fixture(tools?: any) {
   const root = await mkdtemp(path.join(tmpdir(), "atlas-test-"));
   await mkdir(path.join(root, "migrations"));
-  for (const name of ["001_bootstrap.sql", "004_m1_execution.sql"]) {
+  for (const name of ["001_bootstrap.sql", "004_m1_execution.sql", "005_m2_settings.sql"]) {
     await writeFile(path.join(root, "migrations", name), await import("node:fs/promises").then((fs) => fs.readFile(path.join(process.cwd(), "migrations", name))));
   }
   const previous = process.cwd();
@@ -142,3 +142,6 @@ test("workflow can be disabled and enabled without deletion", async () => {
   assert.equal(atlas.controlWorkflow(workflow.id, true).enabled, 1);
   db.close();
 });
+
+
+test("saved environment permissions govern disk tool deployment",async()=>{const{db,atlas}=await fixture();const environment=await atlas.onboardEnvironment({name:"Restricted",kind:"local"});db.run("INSERT INTO environment_permissions(environment_id,tools_json,filesystem_scope,network_enabled,updated_at) VALUES(?,?,?,?,?)",environment.id,"[]","none",0,new Date().toISOString());await assert.rejects(()=>atlas.deployDiskSpace({environmentId:environment.id}),/disabled in environment permissions/);db.close();});

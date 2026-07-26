@@ -1,5 +1,6 @@
 let state = null;
 let providerHealth = null;
+let settingsState = null;
 let activeChat = { kind: "ada", ownerId: "ada" };
 let jobPoll = null;
 let activeView = "overview";
@@ -26,7 +27,7 @@ function notice(message, error = false) {
 }
 
 async function refresh() {
-  [state, providerHealth] = await Promise.all([request("/api/state"), request("/api/providers/health")]);
+  [state, providerHealth, settingsState] = await Promise.all([request("/api/state"), request("/api/providers/health"), request("/api/settings")]);
   render();
 }
 
@@ -89,7 +90,7 @@ function render() {
   $("#roadmapPurpose").textContent = roadmap.purpose ?? "Roadmap unavailable.";
   $("#roadmapList").innerHTML = roadmap.milestones?.length ? `<div class="roadmap">${roadmap.milestones.map((milestone, index) => `<div class="roadmap-item">
     <div class="roadmap-index">${String(index + 1).padStart(2, "0")}</div>
-    <div class="roadmap-body"><div class="item-head"><div><strong>${esc(milestone.title)}</strong><small>${esc(milestone.id)} · ${esc(milestone.deliverables.length)} deliverables</small></div>${badge(milestone.status)}</div><p>${esc(milestone.objective)}</p>${renderMilestoneProgress(milestone.id)}<div class="actions"><button class="secondary" data-roadmap="${esc(milestone.id)}" data-roadmap-action="discuss">Discuss</button><button data-roadmap="${esc(milestone.id)}" data-roadmap-action="implement">Start milestone</button></div></div>
+    <div class="roadmap-body"><div class="item-head"><div><strong>${esc(milestone.title)}</strong><small>${esc(milestone.id)} · ${esc(milestone.deliverables.length)} deliverables</small></div>${badge(milestone.status)}</div><p>${esc(milestone.objective)}</p>${renderMilestoneProgress(milestone)}<div class="actions"><button class="secondary" data-roadmap="${esc(milestone.id)}" data-roadmap-action="discuss">Discuss</button><button data-roadmap="${esc(milestone.id)}" data-roadmap-action="implement">Start milestone</button></div></div>
   </div>`).join("")}</div>` : empty("Roadmap unavailable", "ATLAS could not load the repository roadmap.");
 
   for (const select of [$("#runEnvironment"), $("#agentEnvironment")]) {
@@ -97,6 +98,18 @@ function render() {
     select.innerHTML = state.environments.map((env) => `<option value="${env.id}">${esc(env.name)} · ${esc(env.status)}</option>`).join("");
     if (current) select.value = current;
   }
+
+
+  const setting = settingsState.setting;
+  const providerForm = $("#providerForm");
+  providerForm.elements.provider.value = setting.provider; providerForm.elements.model.value = setting.model; providerForm.elements.baseUrl.value = setting.base_url ?? ""; providerForm.elements.timeoutMs.value = setting.timeout_ms;
+  const activeSecrets = settingsState.secrets.filter((secret) => secret.status === "active");
+  $("#providerSecret").innerHTML = '<option value="">Not required for Ollama</option>' + activeSecrets.map((secret) => `<option value="${esc(secret.id)}">${esc(secret.provider)} · ${esc(secret.label)}</option>`).join("");
+  $("#providerSecret").value = setting.secret_ref_id ?? "";
+  $("#secretList").innerHTML = settingsState.secrets.length ? list(settingsState.secrets.map((secret) => `<div class="item compact"><div class="item-head"><div><strong>${esc(secret.label)}</strong><small>${esc(secret.provider)} · plaintext never displayed</small></div>${badge(secret.status)}</div>${secret.status === "active" ? `<div class="actions"><button class="secondary" data-secret-rotate="${esc(secret.id)}">Rotate</button><button class="danger" data-secret-revoke="${esc(secret.id)}">Revoke</button></div>` : ""}</div>`)) : empty("No secret references", "Local Ollama does not require one.");
+  $("#permissionEnvironment").innerHTML = state.environments.map((env) => `<option value="${esc(env.id)}">${esc(env.name)}</option>`).join("");
+  $("#backupList").innerHTML = settingsState.backups.length ? list(settingsState.backups.map((backup) => `<div class="item compact"><strong>${esc(backup.filename)}</strong><small>${esc(backup.status)} · ${Math.round(backup.size_bytes / 1024)} KiB</small></div>`)) : empty("No backups yet");
+  $("#unavailableControls").innerHTML = `<div class="item compact"><strong>Restart</strong><small>${esc(settingsState.restart.explanation)}</small></div><div class="item compact"><strong>Recovery</strong><small>${esc(settingsState.recovery.explanation)}</small></div>`;
 
   renderChatDock();
   renderMessenger();
@@ -162,8 +175,12 @@ function bindChatLaunchers() {
   document.querySelectorAll("[data-chat-kind]").forEach((button) => button.onclick = () => openChat(button.dataset.chatKind, button.dataset.owner));
 }
 
-function renderMilestoneProgress(milestoneId) {
-  const job = latestJob("ada", null, milestoneId);
+function renderMilestoneProgress(milestone) {
+  if (milestone.status === "completed") {
+    const evidence = milestone.completionEvidence ?? [];
+    return `<div class="work-status"><div class="item-head"><span>Milestone verified</span>${badge("completed")}</div><div class="progress"><span style="width:100%"></span></div>${evidence.length ? `<details><summary>Completion evidence (${evidence.length})</summary><ul>${evidence.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></details>` : ""}</div>`;
+  }
+  const job = latestJob("ada", null, milestone.id);
   if (!job) return "";
   const stateLabel = job.frozen ? "No heartbeat — may need attention" : job.stage;
   return `<div class="work-status ${job.frozen ? "frozen" : ""}"><div class="item-head"><span>${esc(stateLabel)}</span>${badge(job.status)}</div><div class="progress"><span style="width:${Number(job.progress)}%"></span></div><small>${Number(job.progress)}% · updated ${fmt(job.updated_at)}</small></div>`;
@@ -213,6 +230,8 @@ function bindDynamic() {
     if (button.dataset.roadmapAction === "implement") await sendCodingAgent(prompt);
     else await sendChat(prompt);
   });
+  document.querySelectorAll("[data-secret-rotate]").forEach((button) => button.onclick = async () => { const value=window.prompt("Paste the replacement secret. It will be encrypted immediately."); if(!value)return; try{await request(`/api/settings/secrets/${button.dataset.secretRotate}/rotate`,{method:"POST",body:JSON.stringify({value})});notice("Secret reference rotated.");await refresh();}catch(error){notice(error.message,true);} });
+  document.querySelectorAll("[data-secret-revoke]").forEach((button) => button.onclick = async () => { try{await request(`/api/settings/secrets/${button.dataset.secretRevoke}/revoke`,{method:"POST",body:"{}"});notice("Secret reference revoked.");await refresh();}catch(error){notice(error.message,true);} });
   document.querySelectorAll("[data-run-control]").forEach((button) => button.onclick = async () => {
     try {
       await request(`/api/runs/${button.dataset.runControl}/control`, { method: "POST", body: JSON.stringify({ action: button.dataset.action }) });
@@ -256,7 +275,8 @@ const viewMeta = {
   environments: ["Environments", "Connect execution targets and work with their dedicated Managers."],
   workforce: ["Work", "Create agents, deploy tasks, and follow execution."],
   development: ["Roadmap", "Guide the safe evolution of ATLAS from inside ATLAS."],
-  audit: ["Governance", "Approve sensitive actions and inspect the activity trail."]
+  audit: ["Governance", "Approve sensitive actions and inspect the activity trail."],
+  settings: ["Settings", "Configure providers, permissions, diagnostics, and backups."]
 };
 
 function showView(id) {
@@ -325,5 +345,12 @@ $("#messengerForm").onsubmit = async (event) => {
   event.currentTarget.reset();
   await sendChat(data.message);
 };
+
+$("#providerForm").onsubmit = async (event) => { event.preventDefault(); try{await request("/api/settings/provider",{method:"POST",body:JSON.stringify(formObject(event.currentTarget))});notice("Provider applied immediately.");await refresh();}catch(error){notice(error.message,true);} };
+$("#testProvider").onclick = async () => { try{const result=await request("/api/settings/provider/test",{method:"POST",body:"{}"});$("#providerTestResult").innerHTML=`<div class="notice">${esc(result.status)} · ${esc(result.detail)}</div>`;await refresh();}catch(error){notice(error.message,true);} };
+$("#secretForm").onsubmit = async (event) => { event.preventDefault(); try{await request("/api/settings/secrets",{method:"POST",body:JSON.stringify(formObject(event.currentTarget))});event.currentTarget.reset();notice("Encrypted secret reference created.");await refresh();}catch(error){notice(error.message,true);} };
+$("#permissionForm").onsubmit = async (event) => { event.preventDefault(); const form=event.currentTarget; const environmentId=form.elements.environmentId.value; const payload={tools:form.elements.diskTool.checked?["system.disk_space"]:[],filesystemScope:form.elements.filesystemScope.value,networkEnabled:form.elements.networkEnabled.checked}; try{await request(`/api/settings/environments/${environmentId}/permissions`,{method:"POST",body:JSON.stringify(payload)});notice("Environment permissions saved.");await refresh();}catch(error){notice(error.message,true);} };
+$("#runDiagnostics").onclick = async () => { try{const result=await request("/api/settings/diagnostics",{method:"POST",body:"{}"});$("#adminResult").innerHTML=`<div class="pre">${esc(JSON.stringify(result,null,2))}</div>`;}catch(error){notice(error.message,true);} };
+$("#createBackup").onclick = async () => { try{await request("/api/settings/backups",{method:"POST",body:"{}"});notice("Verified backup created.");await refresh();}catch(error){notice(error.message,true);} };
 
 refresh().catch((error) => notice(error.message, true));

@@ -41,7 +41,7 @@ class LocalFake implements ExecutionBackend {
 async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), "atlas-jobs-"));
   await mkdir(path.join(root, "migrations"));
-  for (const name of ["001_bootstrap.sql", "002_assistant_jobs.sql", "003_ada_conversations.sql", "004_m1_execution.sql"]) {
+  for (const name of ["001_bootstrap.sql", "002_assistant_jobs.sql", "003_ada_conversations.sql", "004_m1_execution.sql", "005_m2_settings.sql"]) {
     await writeFile(
       path.join(root, "migrations", name),
       await import("node:fs/promises").then((fs) => fs.readFile(path.join(process.cwd(), "migrations", name)))

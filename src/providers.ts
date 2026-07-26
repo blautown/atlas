@@ -214,6 +214,14 @@ export class UnconfiguredBrowserProvider implements BrowserAgentProvider {
   }
 }
 
+export function createModelProvider(input: { provider: string; model: string; baseUrl?: string | null; apiKey?: string | undefined; timeoutMs?: number }): ModelProvider {
+  if (input.provider === "ollama") return new OllamaProvider(input.model, input.baseUrl ?? "http://127.0.0.1:11434", input.timeoutMs ?? 120_000);
+  const defaults: Record<string, string> = { groq: "https://api.groq.com/openai/v1", openrouter: "https://openrouter.ai/api/v1", openai: "https://api.openai.com/v1" };
+  const baseUrl = input.baseUrl ?? defaults[input.provider];
+  if (!baseUrl || !["groq", "openrouter", "openai"].includes(input.provider)) throw new Error("Unsupported model provider.");
+  return new ResponsesApiProvider(input.provider, input.apiKey, input.model, baseUrl, input.provider === "openrouter" ? { "X-Title": "ATLAS" } : {});
+}
+
 export function createProviders(): {
   model: ModelProvider;
   execution: ExecutionBackend;

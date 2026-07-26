@@ -1,0 +1,6 @@
+-- M2: dashboard-operated settings, encrypted secret references, and environment permissions.
+CREATE TABLE IF NOT EXISTS platform_settings (id TEXT PRIMARY KEY NOT NULL CHECK(id='default'),provider TEXT NOT NULL,model TEXT NOT NULL,base_url TEXT,secret_ref_id TEXT,timeout_ms INTEGER NOT NULL DEFAULT 120000,fallback_enabled INTEGER NOT NULL DEFAULT 0,updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS secret_references (id TEXT PRIMARY KEY NOT NULL,provider TEXT NOT NULL,label TEXT NOT NULL,ciphertext TEXT NOT NULL,iv TEXT NOT NULL,auth_tag TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('active','revoked')),created_at TEXT NOT NULL,rotated_at TEXT,tested_at TEXT);
+CREATE TABLE IF NOT EXISTS environment_permissions (environment_id TEXT PRIMARY KEY NOT NULL REFERENCES environments(id) ON DELETE CASCADE,tools_json TEXT NOT NULL DEFAULT '[]',filesystem_scope TEXT NOT NULL DEFAULT 'none',network_enabled INTEGER NOT NULL DEFAULT 0,updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS system_backups (id TEXT PRIMARY KEY NOT NULL,filename TEXT NOT NULL UNIQUE,status TEXT NOT NULL,size_bytes INTEGER NOT NULL,created_at TEXT NOT NULL,verified_at TEXT);
+INSERT OR IGNORE INTO platform_settings(id,provider,model,base_url,timeout_ms,fallback_enabled,updated_at) VALUES('default','ollama','qwen3:4b','http://127.0.0.1:11434',120000,0,datetime('now'));

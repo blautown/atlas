@@ -5,7 +5,7 @@ import path from "node:path";
 export class AtlasDatabase {
   readonly db: DatabaseSync;
 
-  constructor(file = process.env.ATLAS_DB_PATH ?? path.join(process.cwd(), "data", "atlas.db")) {
+  constructor(readonly file = process.env.ATLAS_DB_PATH ?? path.join(process.cwd(), "data", "atlas.db")) {
     mkdirSync(path.dirname(file), { recursive: true });
     this.db = new DatabaseSync(file);
     this.db.exec("PRAGMA foreign_keys = ON");

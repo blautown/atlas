@@ -46,7 +46,18 @@ try {
   if (agent?.status !== "retired") throw new Error("Temporary disk agent was not retired.");
   if (JSON.parse(agent.permissions_json).tools?.[0] !== "system.disk.read") throw new Error("Disk agent permission scope was incorrect.");
   if (artifact?.verified !== 1 || !(artifact.content?.totalBytes > 0)) throw new Error("Verified disk evidence was not captured.");
-  console.log("Smoke test passed: onboarding, unique Manager, real disk evidence, verification, and temporary-agent retirement.");
+  const settingsResponse = await fetch(`http://127.0.0.1:${port}/api/settings`);
+  const settings = await settingsResponse.json();
+  const serializedSettings = JSON.stringify(settings);
+  if (!settingsResponse.ok || !settings.setting?.provider) throw new Error("Settings API unavailable.");
+  if (serializedSettings.includes('"ciphertext"') || serializedSettings.includes('"auth_tag"')) throw new Error("Encrypted secret material leaked through settings API.");
+  const diagnosticResponse = await fetch(`http://127.0.0.1:${port}/api/settings/diagnostics`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  const diagnostics = await diagnosticResponse.json();
+  if (diagnostics.databaseIntegrity !== "ok") throw new Error("Database diagnostics failed.");
+  const backupResponse = await fetch(`http://127.0.0.1:${port}/api/settings/backups`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  const backup = await backupResponse.json();
+  if (backup.status !== "verified") throw new Error("Dashboard backup was not verified.");
+  console.log("Smoke test passed: M1 execution plus M2 settings, diagnostics, secret-safe API, and verified backup.");
 } finally {
   child.kill();
 }

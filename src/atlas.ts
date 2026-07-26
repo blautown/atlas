@@ -13,6 +13,18 @@ function clip(value: unknown, max = 800): string {
   return text.length <= max ? text : `${text.slice(0, max)}…`;
 }
 
+function publicJobError(value: unknown): string | null {
+  const text = String(value ?? "");
+  if (!text) return null;
+  if (/rate.?limit|status.?429|billing/i.test(text)) {
+    return "The previous model provider was rate limited. Retry with the active provider.";
+  }
+  if (/json_validate_failed|schema|response format/i.test(text)) {
+    return "The previous model response did not match ATLAS's required format.";
+  }
+  return clip(text, 300);
+}
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   try {
@@ -146,7 +158,7 @@ const developerSchema = {
 export class Atlas {
   constructor(
     readonly db: AtlasDatabase,
-    readonly model: ModelProvider,
+    public model: ModelProvider,
     readonly execution: ExecutionBackend,
     readonly root = process.cwd(),
     readonly tools: ToolBroker = new LocalToolBroker()
@@ -173,6 +185,7 @@ export class Atlas {
     const online = environments.filter((env) => env.status === "online").length;
     const jobs = this.db.all<Row>("SELECT * FROM assistant_jobs ORDER BY updated_at DESC LIMIT 50").map((job) => ({
       ...job,
+      error: publicJobError(job.error),
       result: job.result_json ? parseJson(job.result_json) : null,
       frozen: job.status === "working" && Date.now() - new Date(job.heartbeat_at).getTime() > 20_000
     }));
@@ -392,6 +405,8 @@ export class Atlas {
   async deployDiskSpace(input: { environmentId: string }): Promise<Row> {
     const manager = this.db.get<Row>("SELECT * FROM managers WHERE environment_id=?", input.environmentId);
     if (!manager || manager.status !== "online") throw new Error("An online AI Manager is required.");
+    const environmentPermission = this.db.get<Row>("SELECT tools_json FROM environment_permissions WHERE environment_id=?", input.environmentId);
+    if (environmentPermission && !parseJson<string[]>(environmentPermission.tools_json).includes("system.disk_space")) throw new Error("Disk-space inspection is disabled in environment permissions.");
     const permissions: AtlasPermission[] = ["system.disk.read"];
     const agent = this.createAgent({
       environmentId: input.environmentId,

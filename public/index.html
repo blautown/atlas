@@ -18,6 +18,7 @@
       <p class="nav-label">Build and govern</p>
       <button class="nav" data-view="development"><strong>Roadmap</strong><small>Evolve the platform</small></button>
       <button class="nav" data-view="audit"><strong>Governance</strong><small>Approvals and history</small></button>
+      <button class="nav" data-view="settings"><strong>Settings</strong><small>Providers and administration</small></button>
     </nav>
     <div class="provider" id="providerStatus"></div>
   </aside>
@@ -72,6 +73,15 @@
     <section id="audit" class="view">
       <div class="page-intro"><div><h2>Governance</h2><p>Review sensitive actions and inspect the permanent record of ATLAS activity.</p></div></div>
       <div class="grid two"><article><div class="article-head"><h2>Human-in-the-loop requests</h2><span class="count" id="approvalCount">0</span></div><div id="approvalList"></div></article><article><div class="article-head"><h2>Activity trail</h2><span class="count" id="auditCount">0</span></div><div id="auditList"></div></article></div>
+    </section>
+
+    <section id="settings" class="view">
+      <div class="page-intro"><div><h2>Platform settings</h2><p>Configure models, encrypted secret references, permissions, diagnostics, and backups without a terminal.</p></div></div>
+      <div class="grid two">
+        <article><p class="section-kicker">MODEL</p><h2>Provider</h2><form id="providerForm"><label>Provider<select name="provider"><option value="ollama">Ollama</option><option value="groq">Groq</option><option value="openrouter">OpenRouter</option><option value="openai">OpenAI</option></select></label><label>Model<input name="model" required></label><label>Provider address<input name="baseUrl" placeholder="http://127.0.0.1:11434"></label><label>Secret reference<select name="secretRefId" id="providerSecret"><option value="">Not required for Ollama</option></select></label><label>Timeout (milliseconds)<input type="number" name="timeoutMs" min="5000" max="600000" value="120000"></label><div class="actions"><button type="button" class="secondary" id="testProvider">Test connection</button><button type="submit">Apply provider</button></div></form><div id="providerTestResult"></div></article>
+        <article><p class="section-kicker">SECRETS</p><h2>Encrypted references</h2><form id="secretForm"><label>Provider<select name="provider"><option value="groq">Groq</option><option value="openrouter">OpenRouter</option><option value="openai">OpenAI</option></select></label><label>Label<input name="label" required placeholder="Primary API key"></label><label>Secret value<input type="password" name="value" required autocomplete="new-password"></label><button type="submit">Store encrypted reference</button></form><div id="secretList"></div></article>
+      </div>
+      <div class="grid two"><article><p class="section-kicker">ENVIRONMENT</p><h2>Permissions</h2><form id="permissionForm"><label>Environment<select name="environmentId" id="permissionEnvironment"></select></label><label><input type="checkbox" name="diskTool"> Allow disk-space inspection</label><label>Filesystem scope<select name="filesystemScope"><option value="none">None</option><option value="workspace">ATLAS workspace</option></select></label><label><input type="checkbox" name="networkEnabled"> Allow network access</label><button type="submit">Save permission scope</button></form></article><article><p class="section-kicker">SYSTEM</p><h2>Administration</h2><div class="actions"><button id="runDiagnostics">Run diagnostics</button><button id="createBackup" class="secondary">Create verified backup</button></div><div id="adminResult"></div><div id="backupList"></div><div id="unavailableControls"></div></article></div>
     </section>
   </main>
 
