@@ -49,7 +49,7 @@ const managerSchema = {
   additionalProperties: false,
   required: ["reply", "reasoningSummary", "updates", "needsInput", "workflow"],
   properties: {
-    reply: { type: "string" },
+    reply: { type: "string", description: "Warm, confident, proactive user-facing response. For exploratory requests, give 3–4 verified options and a clearly labeled My recommendation." },
     reasoningSummary: { type: "string" },
     updates: { type: "array", items: { type: "string" } },
     needsInput: { type: "boolean" },
@@ -161,7 +161,8 @@ export class Atlas {
     public model: ModelProvider,
     readonly execution: ExecutionBackend,
     readonly root = process.cwd(),
-    readonly tools: ToolBroker = new LocalToolBroker()
+    readonly tools: ToolBroker = new LocalToolBroker(),
+    public adaModel: ModelProvider = model
   ) {}
 
   audit(actorType: string, actorId: string | null, action: string, entityType: string, entityId: string | null, detail: unknown = {}): void {
@@ -211,7 +212,7 @@ export class Atlas {
       messages: this.db.all(`SELECT msg.*, c.kind conversation_kind, c.owner_id
         FROM messages msg JOIN conversations c ON c.id=msg.conversation_id
         ORDER BY msg.created_at ASC LIMIT 200`),
-      providers: { model: this.model.name, modelId: this.model.model ?? null, execution: this.execution.name, browser: "unconfigured" }
+      providers: { model: this.model.name, modelId: this.model.model ?? null, operations: { provider: this.model.name, modelId: this.model.model ?? null }, ada: { provider: this.adaModel.name, modelId: this.adaModel.model ?? null }, execution: this.execution.name, browser: "unconfigured" }
     };
   }
 
@@ -324,7 +325,7 @@ export class Atlas {
       .catch(() => readFile(path.join(process.cwd(), "config", "ada.md"), "utf8"));
     report(20, "Reading live ATLAS state");
     report(45, "ADA is interpreting your request");
-    const raw = await this.model.generate({
+    const raw = await this.adaModel.generate({
       system: assistantPrompt,
       input: `Live ATLAS state:\n${json(context)}\n\nRecent ADA conversation:\n${recent.map((item) => `${item.role}: ${clip(item.content, 400)}`).join("\n")}\n\nCurrent request:\n${clip(message, 4_000)}`,
       jsonSchema: adaSchema
@@ -362,10 +363,14 @@ export class Atlas {
     const conversation = this.ensureConversation("manager", managerId);
     this.saveMessage(conversation, "user", message);
     const recent = this.db.all<Row>("SELECT role,content FROM messages WHERE conversation_id=? ORDER BY created_at DESC LIMIT 12", conversation).reverse();
+    const managerPrompt = await readFile(path.join(this.root, "config", "manager.md"), "utf8")
+      .catch(() => readFile(path.join(process.cwd(), "config", "manager.md"), "utf8"));
     report(25, "Assembling environment context");
     report(40, "Manager is thinking and planning");
     const raw = await this.model.generate({
-      system: `You are the dedicated ATLAS AI Manager for environment "${manager.environment_name}". Agents never speak to the user; you are their sole reporting line. Interpret intent, define safe workflows, choose persistent or temporary agents, schedule within capacity, require HITL for consequential actions, and state verification criteria. Return JSON. Create a workflow only when the user is defining actual work, not when merely asking a question. Never claim that a command, tool, workflow, agent, check, file access, or environment action occurred unless the supplied ATLAS state contains direct evidence that it occurred. Clearly distinguish proposed work from completed work. Updates must describe only real actions performed during this request; for a conversational response, report only context review and response preparation. Never invent measurements, logs, paths, results, or completion confirmations. The reasoningSummary must be a concise decision rationale, not private chain-of-thought.`,
+      system: `${managerPrompt}
+
+Assigned environment: "${manager.environment_name}".`,
       input: `Environment capabilities: ${manager.capabilities_json}\nConversation:\n${recent.map((m) => `${m.role}: ${m.content}`).join("\n")}`,
       jsonSchema: managerSchema
     });
@@ -575,7 +580,7 @@ export class Atlas {
     const assistantPrompt = await readFile(path.join(this.root, "config", "coding-agent.md"), "utf8")
       .catch(() => readFile(path.join(process.cwd(), "config", "coding-agent.md"), "utf8"));
     report(20, "Selecting the minimum repository evidence");
-    const inspectionRaw = await this.model.generate({
+    const inspectionRaw = await this.adaModel.generate({
       system: "Select the minimum repository files needed to answer the request. Return only paths from the supplied inventory. Do not assess implementation, call tools, or propose changes.",
       input: `Repository file-name inventory:\n${tree}\n\nRequest:\n${message}`,
       jsonSchema: inspectionSchema
@@ -591,7 +596,7 @@ export class Atlas {
       evidenceCharacters += content.length;
     }
     report(45, "ADA's coding agent is reviewing verified evidence");
-    const raw = await this.model.generate({
+    const raw = await this.adaModel.generate({
       system: assistantPrompt,
       input: `ATLAS roadmap:\n${json(roadmap)}\n\nUser request:\n${message}\n\nVerified repository evidence selected and read by ATLAS:\n${observations.join("\n\n") || "No file evidence was selected. Withhold repository conclusions and request clarification."}`,
       jsonSchema: developerSchema

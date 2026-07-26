@@ -94,9 +94,10 @@ export class ResponsesApiProvider implements ModelProvider {
   }
 }
 
+const ollamaInferenceQueues = new Map<string, Promise<void>>();
+
 export class OllamaProvider implements ModelProvider {
   readonly name = "ollama";
-  private inferenceQueue: Promise<void> = Promise.resolve();
 
   constructor(
     readonly model = process.env.ATLAS_MODEL ?? "qwen3:4b",
@@ -119,8 +120,10 @@ export class OllamaProvider implements ModelProvider {
   }
 
   generate(request: { system: string; input: string; jsonSchema?: Record<string, unknown> }): Promise<string> {
-    const task = this.inferenceQueue.then(() => this.generateNow(request), () => this.generateNow(request));
-    this.inferenceQueue = task.then(() => undefined, () => undefined);
+    const key = this.baseUrl.replace(/\/$/, "");
+    const queue = ollamaInferenceQueues.get(key) ?? Promise.resolve();
+    const task = queue.then(() => this.generateNow(request), () => this.generateNow(request));
+    ollamaInferenceQueues.set(key, task.then(() => undefined, () => undefined));
     return task;
   }
 

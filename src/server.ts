@@ -14,10 +14,13 @@ const root = process.cwd();
 const publicDir = path.join(root, "public");
 const database = new AtlasDatabase();
 export const settings = new SettingsService(database, root);
-const initialSettings = (settings.state() as any).setting;
-const initialModel = createModelProvider({ provider: initialSettings.provider, model: initialSettings.model, baseUrl: initialSettings.base_url, apiKey: settings.getSecret(initialSettings.secret_ref_id), timeoutMs: initialSettings.timeout_ms });
+const initialState = settings.state() as any;
+const roleSetting = (role: "ada" | "operations") => initialState.modelRoles?.find((item: any) => item.role === role) ?? initialState.setting;
+const providerFrom = (selected: any) => createModelProvider({ provider: selected.provider, model: selected.model, baseUrl: selected.base_url, apiKey: settings.getSecret(selected.secret_ref_id), timeoutMs: selected.timeout_ms });
+const initialOperationsModel = providerFrom(roleSetting("operations"));
+const initialAdaModel = providerFrom(roleSetting("ada"));
 const execution = new LocalExecutionBackend();
-export const atlas = new Atlas(database, initialModel, execution, root);
+export const atlas = new Atlas(database, initialOperationsModel, execution, root, undefined, initialAdaModel);
 export const connector = new ConnectorService(database, root);
 export const browserBridge = new BrowserBridgeService(database);
 
@@ -66,6 +69,9 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
   const revokeMatch=url.pathname.match(/^\/api\/connectors\/environments\/([^/]+)\/revoke$/);
   if(request.method==="POST"&&revokeMatch?.[1]){const result=connector.revoke(revokeMatch[1]);atlas.audit("user",null,"environment.revoked","environment",revokeMatch[1],{});send(response,200,result);return true;}
   if (request.method === "GET" && url.pathname === "/api/connectors") { send(response, 200, connector.state()); return true; }
+  const modelRoleMatch=url.pathname.match(/^\/api\/settings\/models\/(ada|operations)(?:\/(test))?$/);
+  if(request.method==="POST"&&modelRoleMatch?.[1]&&!modelRoleMatch[2]){const role=modelRoleMatch[1];const saved=settings.saveRoleProvider(role,await body(request));const provider=providerFrom(saved);if(role==="ada")atlas.adaModel=provider;else atlas.model=provider;atlas.audit("user",null,"settings.model_role.updated","settings",role,{provider:saved.provider,model:saved.model});send(response,200,saved);return true;}
+  if(request.method==="POST"&&modelRoleMatch?.[1]&&modelRoleMatch[2]==="test"){await body(request);const selected=(settings.state() as any).modelRoles.find((item:any)=>item.role===modelRoleMatch[1]);const provider=providerFrom(selected);const result=provider.health?await provider.health():{status:"online",model:provider.model,detail:"Provider configured."};send(response,200,result);return true;}
   if (request.method === "GET" && url.pathname === "/api/settings") { send(response, 200, settings.state()); return true; }
   if (request.method === "POST" && url.pathname === "/api/settings/provider") {
     const saved = settings.saveProvider(await body(request));

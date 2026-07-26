@@ -113,12 +113,14 @@ function render() {
   }
 
 
-  const setting = settingsState.setting;
-  const providerForm = $("#providerForm");
-  providerForm.elements.provider.value = setting.provider; providerForm.elements.model.value = setting.model; providerForm.elements.baseUrl.value = setting.base_url ?? ""; providerForm.elements.timeoutMs.value = setting.timeout_ms;
   const activeSecrets = settingsState.secrets.filter((secret) => secret.status === "active");
-  $("#providerSecret").innerHTML = '<option value="">Not required for Ollama</option>' + activeSecrets.map((secret) => `<option value="${esc(secret.id)}">${esc(secret.provider)} · ${esc(secret.label)}</option>`).join("");
-  $("#providerSecret").value = setting.secret_ref_id ?? "";
+  document.querySelectorAll(".model-role-form").forEach((form) => {
+    const setting = settingsState.modelRoles.find((item) => item.role === form.dataset.role);
+    if (!setting) return;
+    form.elements.provider.value = setting.provider; form.elements.model.value = setting.model; form.elements.baseUrl.value = setting.base_url ?? ""; form.elements.timeoutMs.value = setting.timeout_ms;
+    form.elements.secretRefId.innerHTML = '<option value="">Not required for Ollama</option>' + activeSecrets.map((secret) => `<option value="${esc(secret.id)}">${esc(secret.provider)} · ${esc(secret.label)}</option>`).join("");
+    form.elements.secretRefId.value = setting.secret_ref_id ?? "";
+  });
   $("#secretList").innerHTML = settingsState.secrets.length ? list(settingsState.secrets.map((secret) => `<div class="item compact"><div class="item-head"><div><strong>${esc(secret.label)}</strong><small>${esc(secret.provider)} · plaintext never displayed</small></div>${badge(secret.status)}</div>${secret.status === "active" ? `<div class="actions"><button class="secondary" data-secret-rotate="${esc(secret.id)}">Rotate</button><button class="danger" data-secret-revoke="${esc(secret.id)}">Revoke</button></div>` : ""}</div>`)) : empty("No secret references", "Local Ollama does not require one.");
   $("#permissionEnvironment").innerHTML = state.environments.map((env) => `<option value="${esc(env.id)}">${esc(env.name)}</option>`).join("");
   $("#backupList").innerHTML = settingsState.backups.length ? list(settingsState.backups.map((backup) => `<div class="item compact"><strong>${esc(backup.filename)}</strong><small>${esc(backup.status)} · ${Math.round(backup.size_bytes / 1024)} KiB</small></div>`)) : empty("No backups yet");
@@ -365,8 +367,8 @@ $("#messengerForm").onsubmit = async (event) => {
   await sendChat(data.message);
 };
 
-$("#providerForm").onsubmit = async (event) => { event.preventDefault(); try{await request("/api/settings/provider",{method:"POST",body:JSON.stringify(formObject(event.currentTarget))});notice("Provider applied immediately.");await refresh();}catch(error){notice(error.message,true);} };
-$("#testProvider").onclick = async () => { try{const result=await request("/api/settings/provider/test",{method:"POST",body:"{}"});$("#providerTestResult").innerHTML=`<div class="notice">${esc(result.status)} · ${esc(result.detail)}</div>`;await refresh();}catch(error){notice(error.message,true);} };
+document.querySelectorAll(".model-role-form").forEach((form) => form.onsubmit = async (event) => { event.preventDefault(); const role=form.dataset.role;try{await request(`/api/settings/models/${role}`,{method:"POST",body:JSON.stringify(formObject(form))});notice(role === "ada" ? "ADA model applied immediately." : "Manager and agent model applied immediately.");await refresh();}catch(error){notice(error.message,true);} });
+document.querySelectorAll("[data-test-role]").forEach((button) => button.onclick = async () => { const role=button.dataset.testRole;try{const result=await request(`/api/settings/models/${role}/test`,{method:"POST",body:"{}"});document.querySelector(`[data-role-result="${role}"]`).innerHTML=`<div class="notice">${esc(result.status)} · ${esc(result.model)} · ${esc(result.detail)}</div>`;}catch(error){notice(error.message,true);} });
 $("#secretForm").onsubmit = async (event) => { event.preventDefault(); try{await request("/api/settings/secrets",{method:"POST",body:JSON.stringify(formObject(event.currentTarget))});event.currentTarget.reset();notice("Encrypted secret reference created.");await refresh();}catch(error){notice(error.message,true);} };
 $("#permissionForm").onsubmit = async (event) => { event.preventDefault(); const form=event.currentTarget; const environmentId=form.elements.environmentId.value; const payload={tools:form.elements.diskTool.checked?["system.disk_space"]:[],filesystemScope:form.elements.filesystemScope.value,networkEnabled:form.elements.networkEnabled.checked}; try{await request(`/api/settings/environments/${environmentId}/permissions`,{method:"POST",body:JSON.stringify(payload)});notice("Environment permissions saved.");await refresh();}catch(error){notice(error.message,true);} };
 $("#runDiagnostics").onclick = async () => { try{const result=await request("/api/settings/diagnostics",{method:"POST",body:"{}"});$("#adminResult").innerHTML=`<div class="pre">${esc(JSON.stringify(result,null,2))}</div>`;}catch(error){notice(error.message,true);} };
