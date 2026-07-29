@@ -1,6 +1,6 @@
 # ATLAS
 
-ATLAS is a self-extensible operating platform for supervised AI environments, managers, agents, and workflows. This bootstrap is a local-first control plane with real SQLite persistence and a repository-connected coding agent governed through ADA.
+ATLAS is a self-extensible operating platform for persistent Actors, supervised AI environments, Managers, temporary agents, and operational workflows. Actors are created globally with profiles, goals, intended outcomes, Routine Tasks, and taught Skills before an Environment Manager assesses them for deployment.
 
 ## Requirements
 
@@ -58,17 +58,18 @@ npm start
 
 1. Open **Environments** and connect **This computer**.
 2. ATLAS discovers local capacity and creates exactly one dedicated Manager.
-3. Open that Manager and describe a workflow in plain English.
-4. The Manager creates the workflow and required agent profiles.
-5. Run **Check real disk space** to exercise the permissioned tool broker, or deploy another temporary task.
-6. Observe execution, results, cleanup, and audit events.
-7. Ask **ADA** to delegate a platform change to its coding agent.
-8. Review its proposed writes or checks under **Audit & approvals**.
+3. Create an Actor profile and define its goals, intended outcomes, and natural-language Routine Tasks.
+4. Teach and safely rehearse the Actor Skills required by those tasks.
+5. Select an environment. Its Manager compares live capabilities and operational capacity, proves required environmental skills, and produces a deployment-readiness manifest.
+6. Activate ready tasks; blocked tasks remain explicit and required blockers mark the Actor degraded.
+7. Run **Check real disk space** to exercise the permissioned temporary-agent loop, or ask **ADA** to delegate a platform change to its coding agent.
+8. Review health, outcomes, Manager escalations, and governed actions under **Audit & approvals**.
 
 ## Architecture
 
 - `src/server.ts` — local HTTP control plane and static dashboard server
 - `src/atlas.ts` — environment, Manager, agent, workflow, memory, scheduling, HITL, and Development Assistant services
+- `src/actors.ts` — Actor profiles, routines, Skills, environment readiness, deployment manifests, health gates, and Actor communication
 - `src/providers.ts` — replaceable model, execution, and browser provider boundaries
 - `migrations/` — durable SQLite schema
 - `public/` — real dashboard backed by application state
@@ -77,7 +78,7 @@ npm start
 
 The Development Assistant view presents roadmap milestones with **Discuss** and **Start milestone** actions. These generate structured chat prompts automatically so platform development stays tied to repository-owned objectives and acceptance criteria.
 
-ADA is the user-facing guide across ATLAS and can explain live state or prepare a governed handoff to an environment Manager or the Development Assistant. Operational agents never communicate directly with the user. Environment Managers are the operational reporting and supervision boundary. ADA's coding agent has no direct user interface and can only change ATLAS through repository-scoped actions and user-approved checks/writes; its reports return through ADA.
+The user directly faces ADA, the Development Assistant, Environment Managers, and Actors. Temporary operational agents never communicate directly with the user. A supervised Actor may answer a user-initiated conversation, but proactive messages and operational escalations route through its Environment Manager. ADA's coding agent can only change ATLAS through repository-scoped actions and user-approved checks/writes.
 
 ## Remote environment runtime
 

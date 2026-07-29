@@ -10,7 +10,8 @@ import type { ExecutionBackend, ModelProvider } from "../src/types.js";
 class AdaModel implements ModelProvider {
   readonly name = "ada-fake";
   async generate(request: { system: string; input: string }): Promise<string> {
-    assert.match(request.system, /single human-facing/);
+    assert.match(request.system, /primary human-facing/);
+    assert.match(request.system, /Development Assistant.*coding agents remain internal to ADA.*report their results through\s+ADA/s);
     assert.match(request.input, /Laptop Manager/);
     assert.ok(request.input.length < 10_000, `ADA context was not bounded: ${request.input.length} characters`);
     const managerId = request.input.match(/"manager_id":"([^"]+)"/)?.[1] ?? "missing";

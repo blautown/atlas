@@ -18,13 +18,15 @@ After the initial installation, a non-technical user should be able to configure
    Add a consent-based browser bridge or extension for approved sessions and tabs without exposing raw debugging ports.
 5. **M5 — Task observation and workflow learning**
    Observe a user completing work, infer the workflow, produce an asset and permission report, rehearse it, and require approval before autonomy.
-6. **M6 — Development Assistant engineering loop**
+6. **V1 Actors — Actor creation, readiness, and managed deployment**
+   Create global Actors with goals and Routine Tasks, teach complete Actor Skills, assess environment capability and operational capacity independently, prove Manager environmental skills, and partially deploy only evidence-ready work.
+7. **M6 — Development Assistant engineering loop**
    Add multi-step inspection, transactional edits, automated correction, rollback, decision records, and roadmap progress updates.
-7. **M7 — Authentication, remote control plane, and mobile readiness**
+8. **M7 — Authentication, remote control plane, and mobile readiness**
    Add secure remote state, events, device enrollment, HITL, emergency controls, and Android-ready contracts.
-8. **M8 — Android supervisory client**
+9. **M8 — Android supervisory client**
    Build monitoring, Manager conversation, task deployment, notifications, biometric HITL, results, and emergency controls.
-9. **M9 — Production hardening and installer**
+10. **M9 — Production hardening and installer**
    Deliver a signed installer, automatic service setup, secure updates, backup recovery, observability, and operational documentation.
 
 ## Development Assistant behavior

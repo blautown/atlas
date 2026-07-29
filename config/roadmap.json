@@ -8,7 +8,8 @@
     "The Development Assistant evolves ATLAS itself and does not dispatch operational work.",
     "Sensitive actions require scoped permissions, audit records, and human approval.",
     "Connected environments initiate outbound authenticated connections; ATLAS does not expose raw machine or browser debugging ports to the internet.",
-    "No milestone is complete until type checking, linting, unit tests, integration tests, and an end-to-end smoke test pass."
+    "No milestone is complete until type checking, linting, unit tests, integration tests, and an end-to-end smoke test pass.",
+    "Model capability is treated as a first-class constraint: routine Managers and ADA use the smallest reliable local model; higher-reasoning roles (Development Assistant, complex workflow inference) may use stronger models only when explicitly required and still remain fully auditable."
   ],
   "milestones": [
     {
@@ -127,7 +128,7 @@
     {
       "id": "M5",
       "title": "Task observation and workflow learning",
-      "status": "ready_for_validation",
+      "status": "completed",
       "objective": "Let a Manager observe the user completing a task, infer a reusable workflow, and report every required asset and permission.",
       "deliverables": [
         "Teach by observation and hybrid instruction-plus-observation modes",
@@ -153,7 +154,54 @@
         "Safe rehearsal records selector and URL-origin deviations; autonomy approval is unavailable until rehearsal completes.",
         "Approval creates a disabled workflow, so autonomous activation remains a separate deliberate user action.",
         "Twenty-five tests, type checking, linting, production build, extension syntax validation, HTTP smoke, and a live dashboard render pass.",
-        "Physical recording and rehearsal remain the final acceptance validation after reloading the unpacked extension."
+        "Physical validation paired the local ATLAS test page to the live Laptop Manager and captured twelve user-performed semantic actions.",
+        "The physical recording generated an editable twelve-step workflow graph and a requirements report covering browser tools, approved-tab capability, permissions, assets, accounts, and secrets.",
+        "A live extension rehearsal completed with zero selector or URL-origin deviations.",
+        "The autonomy gate prevented workflow creation before the user's explicit approval; approval then created the learned workflow disabled by default.",
+        "Physical validation exposed broken Stop and Governance click bindings; both controls now use resilient delegated handlers."
+      ]
+    },
+    {
+      "id": "M5.5",
+      "title": "Model tiering and capability ceiling",
+      "status": "planned",
+      "objective": "Make model selection deliberate so that 4B-class local models remain the default for routine work while stronger models are available only for the Development Assistant and other high-reasoning tasks, without breaking the local-first and auditability guarantees.",
+      "deliverables": [
+        "Documented model tiers (Routine / Reasoning / Coding) with clear role mapping",
+        "Provider settings support per-role model overrides that persist in the dashboard",
+        "Development Assistant defaults to a stronger model when available, with explicit fallback to the local 4B model",
+        "Simple capability probe or health check that warns when a task is likely to exceed the current model's reliable range",
+        "Updated acceptance criteria for M6 that reference model tier requirements"
+      ],
+      "acceptance": [
+        "Routine Managers and ADA continue to run on the local 4B model by default.",
+        "The Development Assistant can be assigned a stronger model without changing any other agent behaviour.",
+        "All model choices remain visible in Settings and appear in audit records.",
+        "A user can complete a simple workflow and a Development Assistant discussion entirely on local 4B models if desired."
+      ]
+    },
+    {
+      "id": "V1-ACTORS",
+      "title": "Actor creation, readiness, and managed deployment",
+      "status": "in_progress",
+      "objective": "Make global Actors, their goals and Routine Tasks, and evidence-gated Environment Manager supervision the core ATLAS V1 workflow.",
+      "deliverables": [
+        "Two-stage global Actor profile and Routine creation",
+        "Goals and measurable intended outcomes",
+        "Actor-owned versioned Skills with reusable teaching templates",
+        "Separate live environment capability and operational-capacity indicators",
+        "Environment-proven Manager skills, configurations, scoped secret references, and health gates",
+        "Live deployment manifest with structured readiness reason codes and plain-language Manager explanations",
+        "Partial deployment, degradation, suspension, recovery, and outcome-drift supervision",
+        "Direct user-initiated Actor conversation with Manager-gated proactive communication"
+      ],
+      "acceptance": [
+        "The user creates an Actor without selecting an environment and defines goals, outcomes, and natural-language Routine Tasks.",
+        "The Manager compiles and the user approves exact schedules, while taught Actor Skills pass safe rehearsal with verification evidence.",
+        "ATLAS assesses fresh capability and operational-capacity evidence independently and proves required environmental skills in the selected environment.",
+        "Ready Routine Tasks deploy while blocked tasks remain explicit; required blockers make the Actor degraded.",
+        "Capability, capacity, session, credential, verification, or outcome failure degrades or pauses affected work and routes an escalation through the Manager.",
+        "A supervised Actor survives 24 hours of scheduled operation with recorded health, verification, recovery, and Manager reporting evidence."
       ]
     },
     {
@@ -173,7 +221,8 @@
       "acceptance": [
         "The user starts a roadmap milestone from the dashboard.",
         "The Development Assistant inspects, implements, tests, and presents the verified change.",
-        "All material writes and commands remain scoped, auditable, and approval controlled."
+        "All material writes and commands remain scoped, auditable, and approval controlled.",
+        "Development work uses the configured Coding model tier when available and reports any fallback to the local Routine tier before implementation."
       ]
     },
     {

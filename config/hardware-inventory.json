@@ -1,0 +1,191 @@
+{
+  "version": 1,
+  "updatedAt": "2026-07-27",
+  "hardware": [
+    {
+      "id": "acer-aspire-tc-1780",
+      "status": "available",
+      "condition": "as-is",
+      "name": "Acer Aspire TC-1780",
+      "productCode": "DT.BK6SA.002",
+      "formFactor": "desktop",
+      "specifications": {
+        "processor": "Intel Core i7-13700",
+        "memoryGB": 8,
+        "storage": [
+          {
+            "type": "SSD",
+            "capacityGB": 1000
+          }
+        ],
+        "graphics": "Intel UHD Graphics 770"
+      },
+      "atlas": {
+        "connected": false,
+        "plannedUse": [
+          "potential ATLAS native environment",
+          "potential personal ATLAS server"
+        ],
+        "notes": "Available hardware recorded as-is. Actual runtime capabilities will be measured during environment onboarding."
+      },
+      "sources": [
+        "User-provided model and product code",
+        "Manufacturer/retailer configuration associated with product code DT.BK6SA.002"
+      ]
+    },
+    {
+      "id": "android-phone-personal",
+      "name": "Personal Android smartphone",
+      "ownership": "personal",
+      "isPrimaryPersonalDevice": true,
+      "status": "available",
+      "condition": "as-is",
+      "formFactor": "smartphone",
+      "operatingSystem": "Android",
+      "specifications": {
+        "model": null,
+        "processor": null,
+        "memoryGB": null,
+        "storageGB": null
+      },
+      "atlas": {
+        "connected": false,
+        "plannedUse": [
+          "potential ATLAS mobile client",
+          "potential managed mobile environment"
+        ],
+        "notes": "Available hardware recorded as-is. Capabilities and permissions will be measured during consent-based onboarding."
+      },
+      "sources": [
+        "User-provided hardware count and personal-device designation"
+      ]
+    },
+    {
+      "id": "android-phone-2",
+      "name": "Android smartphone 2",
+      "ownership": "available",
+      "isPrimaryPersonalDevice": false,
+      "status": "available",
+      "condition": "as-is",
+      "formFactor": "smartphone",
+      "operatingSystem": "Android",
+      "specifications": {
+        "model": null,
+        "processor": null,
+        "memoryGB": null,
+        "storageGB": null
+      },
+      "atlas": {
+        "connected": false,
+        "plannedUse": [
+          "potential ATLAS mobile client",
+          "potential managed mobile environment"
+        ],
+        "notes": "Available hardware recorded as-is. Capabilities and permissions will be measured during consent-based onboarding."
+      },
+      "sources": [
+        "User-provided hardware count and personal-device designation"
+      ]
+    },
+    {
+      "id": "android-phone-3",
+      "name": "Android smartphone 3",
+      "ownership": "available",
+      "isPrimaryPersonalDevice": false,
+      "status": "available",
+      "condition": "as-is",
+      "formFactor": "smartphone",
+      "operatingSystem": "Android",
+      "specifications": {
+        "model": null,
+        "processor": null,
+        "memoryGB": null,
+        "storageGB": null
+      },
+      "atlas": {
+        "connected": false,
+        "plannedUse": [
+          "potential ATLAS mobile client",
+          "potential managed mobile environment"
+        ],
+        "notes": "Available hardware recorded as-is. Capabilities and permissions will be measured during consent-based onboarding."
+      },
+      "sources": [
+        "User-provided hardware count and personal-device designation"
+      ]
+    },
+    {
+      "id": "android-phone-4",
+      "name": "Android smartphone 4",
+      "ownership": "available",
+      "isPrimaryPersonalDevice": false,
+      "status": "available",
+      "condition": "as-is",
+      "formFactor": "smartphone",
+      "operatingSystem": "Android",
+      "specifications": {
+        "model": null,
+        "processor": null,
+        "memoryGB": null,
+        "storageGB": null
+      },
+      "atlas": {
+        "connected": false,
+        "plannedUse": [
+          "potential ATLAS mobile client",
+          "potential managed mobile environment"
+        ],
+        "notes": "Available hardware recorded as-is. Capabilities and permissions will be measured during consent-based onboarding."
+      },
+      "sources": [
+        "User-provided hardware count and personal-device designation"
+      ]
+    },
+    {
+      "id": "microsoft-surface-13-personal",
+      "status": "available",
+      "condition": "as-is",
+      "name": "Microsoft Surface Laptop 3 (13-inch personal laptop)",
+      "ownership": "personal",
+      "isPrimaryPersonalDevice": true,
+      "formFactor": "laptop",
+      "operatingSystem": "Windows 11 Home 64-bit",
+      "specifications": {
+        "model": "Surface Laptop 3",
+        "displayInches": 13,
+        "processor": "Intel Core i5-1035G7 @ 1.20 GHz",
+        "memoryGB": 8,
+        "storageGB": 255,
+        "graphics": null,
+        "physicalCores": 4,
+        "logicalProcessors": 8,
+        "directX": "DirectX 12",
+        "biosVersion": "19.101.140",
+        "windowsBuild": 26200,
+        "storage": [
+          {
+            "volume": "C:",
+            "type": "SSD",
+            "capacityGB": 255,
+            "usedGB": 139,
+            "freeGB": 116,
+            "measuredAt": "2026-07-27"
+          }
+        ]
+      },
+      "atlas": {
+        "connected": false,
+        "plannedUse": [
+          "personal ATLAS dashboard client",
+          "potential managed laptop environment"
+        ],
+        "notes": "Personal laptop recorded as-is from DxDiag. Currently hosting the active ATLAS development workspace; storage and graphics remain unconfirmed."
+      },
+      "sources": [
+        "User-provided device description and personal-device designation",
+        "DxDiag screenshot supplied by user on 2026-07-27",
+        "Direct C: filesystem measurement on 2026-07-27"
+      ]
+    }
+  ]
+}

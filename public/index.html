@@ -14,7 +14,7 @@
       <p class="nav-label">Operate</p>
       <button class="nav active" data-view="overview"><strong>Overview</strong><small>Capacity and attention</small></button>
       <button class="nav" data-view="environments"><strong>Environments</strong><small>Machines and Managers</small></button>
-      <button class="nav" data-view="workforce"><strong>Work</strong><small>Agents and execution</small></button>
+      <button class="nav" data-view="workforce"><strong>Actors & Work</strong><small>Persistent identities and execution</small></button>
       <button class="nav" data-view="browser"><strong>Browser</strong><small>Approved active tabs</small></button>
       <p class="nav-label">Build and govern</p>
       <button class="nav" data-view="development"><strong>Roadmap</strong><small>Evolve the platform</small></button>
@@ -62,12 +62,13 @@
     </section>
 
     <section id="workforce" class="view">
-      <div class="page-intro"><div><h2>Work</h2><p>Deploy one-off tasks or create persistent agents. Every agent is supervised by its environment Manager.</p></div></div>
+      <div class="page-intro"><div><h2>Actors & Work</h2><p>Create Actors globally, define their routines, then let an Environment Manager assess and supervise deployment. Temporary agents remain internal execution workers.</p></div></div>
       <div class="grid two">
         <article><p class="section-kicker">ONE-OFF</p><h2>Deploy a task agent</h2><form id="runForm"><label>Environment<select name="environmentId" id="runEnvironment" required></select></label><label>Objective<textarea name="objective" required placeholder="Describe the outcome and how it should be verified."></textarea></label><div class="actions"><button type="button" class="secondary" id="runDiskSpace">Check real disk space</button><button type="submit">Deploy through Manager</button></div></form></article>
-        <article><p class="section-kicker">ALWAYS ON</p><h2>Create a persistent agent</h2><form id="agentForm"><label>Environment<select name="environmentId" id="agentEnvironment" required></select></label><label>Name<input name="name" required placeholder="Operations Monitor"></label><label>Continuing objective<textarea name="objective" required placeholder="Describe the routine responsibility."></textarea></label><input type="hidden" name="lifecycle" value="persistent"><button type="submit">Create under Manager</button></form></article>
+        <article><p class="section-kicker">ACTOR CREATION · STAGE 1</p><h2>Profile</h2><form id="actorForm"><label>Name<input name="name" required placeholder="Maya"></label><label>Identity<textarea name="identity" required placeholder="Who this Actor is."></textarea></label><label>Personality<input name="personality" required placeholder="Focused, patient, transparent"></label><label>Relationship with you<input name="relationship" required placeholder="Personal operations partner"></label><label>Availability<input name="availability" placeholder="Generally available around the clock"></label><hr><p class="section-kicker">STAGE 2</p><h2>First Routine Task</h2><label>Task name<input name="routineTitle" required placeholder="Claim nuts.gg giveaway"></label><label>What should happen?<textarea name="routineIntention" required placeholder="Claim the available nuts.gg giveaway and verify the result."></textarea></label><label>When should this happen?<input name="timingText" required placeholder="Every 30 minutes"></label><label><input type="checkbox" name="routineRequired" checked> Required for deployment health</label><button type="submit">Create Actor draft</button></form></article>
       </div>
-      <div class="grid two"><article><div class="article-head"><h2>Agent registry</h2><span class="count" id="agentCount">0</span></div><div id="agentList"></div></article><article><div class="article-head"><h2>Learned workflows</h2><span class="count" id="workflowCount">0</span></div><div id="workflowList"></div></article></div>
+      <article><div class="article-head"><div><p class="section-kicker">PERSISTENT IDENTITIES</p><h2>Actor registry and deployment readiness</h2></div><span class="count" id="actorCount">0</span></div><div id="actorList"></div></article>
+      <div class="grid two"><article><div class="article-head"><h2>Temporary execution agents</h2><span class="count" id="agentCount">0</span></div><div id="agentList"></div></article><article><div class="article-head"><h2>Manager workflows</h2><span class="count" id="workflowCount">0</span></div><div id="workflowList"></div></article></div>
       <article><div class="article-head"><h2>Execution history</h2><span class="count" id="runCount">0</span></div><div id="runList"></div></article>
     </section>
 

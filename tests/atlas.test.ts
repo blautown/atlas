@@ -68,6 +68,17 @@ test("manager learns workflow and owns agents", async () => {
   db.close();
 });
 
+test("manager cannot create a workflow when the latest user message forbids it", async () => {
+  const { db, atlas } = await fixture();
+  await atlas.onboardEnvironment({ name: "Test Desktop", kind: "local" });
+  const manager = db.get<any>("SELECT * FROM managers")!;
+  const result = await atlas.managerChat(manager.id, "Health check only. Do not create a workflow.");
+  assert.equal(result.workflow, undefined);
+  assert.equal(db.all<any>("SELECT * FROM workflows").length, 0);
+  assert.equal(db.all<any>("SELECT * FROM agents").length, 0);
+  db.close();
+});
+
 test("temporary agent retires after verified execution", async () => {
   const { db, atlas } = await fixture();
   const environment = await atlas.onboardEnvironment({ name: "Test Desktop", kind: "local" });

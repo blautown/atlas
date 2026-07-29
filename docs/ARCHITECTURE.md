@@ -2,6 +2,10 @@
 
 ATLAS uses a local control plane with durable SQLite state. Every environment has a database-enforced one-to-one Manager relationship. Managers own agent creation, workflow learning, scheduling, run supervision, recovery status, memory creation, reporting, and temporary-agent retirement.
 
+Actors are global persistent identities rather than environment-owned agents. An Actor owns a profile, goals, measurable intended outcomes, natural-language Routine Tasks, and independently versioned Skills. A deployment binds one Actor to one Environment Manager at a time. The Manager compiles exact schedules, evaluates live dependencies, activates ready tasks, and retains explicit blockers for partial deployment.
+
+Environment capability and operational capacity are separate evidence streams. Concrete configurations and encrypted secret references belong to a deployment. Environmental Skill definitions may be reused, but proof and health gates are scoped to one Manager in one environment. Workflows remain operational mechanisms for Managers and temporary agents; they are not part of the Actor Routine model.
+
 Provider boundaries keep model generation, command execution, and browser operation replaceable. The model adapter supports OpenAI, Groq, and OpenRouter through their Responses-compatible APIs. Selection is configuration-driven, and provider credentials remain secret references rather than database values. The local execution provider exposes only an explicit verification-command allowlist to the Development Assistant.
 
 The Development Assistant receives a repository inventory, creates structured actions, and requires HITL approval before writes or command execution. Paths are confined to the repository. Secrets are referenced through environment variables and excluded from source control.

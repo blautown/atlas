@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ATLAS M5 Validation Task</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    body { max-width: 720px; margin: 0 auto; padding: 48px 20px; }
+    main { margin: 0; }
+    #result { margin-top: 18px; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">LOCAL VALIDATION FIXTURE</p>
+    <h1>Prepare a supervised report</h1>
+    <p>This page performs no network or account action. It exists only to validate ATLAS workflow observation and rehearsal.</p>
+    <article>
+      <form id="validation-task">
+        <label>Report title<input id="report-title" name="reportTitle" required placeholder="Weekly operations report"></label>
+        <label>Priority<select id="priority" name="priority"><option value="normal">Normal</option><option value="high">High</option></select></label>
+        <label><input id="verify" name="verify" type="checkbox" required> Verify the report before preparation</label>
+        <button id="prepare" type="submit">Prepare report</button>
+      </form>
+      <div id="result" role="status"></div>
+    </article>
+  </main>
+  <script>
+    document.querySelector("#validation-task").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const title = document.querySelector("#report-title").value;
+      const priority = document.querySelector("#priority").value;
+      document.querySelector("#result").textContent = `Prepared "${title}" with ${priority} priority.`;
+    });
+  </script>
+</body>
+</html>

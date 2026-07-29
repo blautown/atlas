@@ -124,8 +124,56 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
     send(response, 201, await atlas.onboardEnvironment(await body(request)));
     return true;
   }
+  if (request.method === "POST" && url.pathname === "/api/actors") {
+    send(response, 201, atlas.actors.createActor(await body(request))); return true;
+  }
+  const actorMatch=url.pathname.match(/^\/api\/actors\/([^/]+)$/);
+  if(request.method==="PATCH"&&actorMatch?.[1]){send(response,200,atlas.actors.updateActor(actorMatch[1],await body(request)));return true;}
+  const actorChild=url.pathname.match(/^\/api\/actors\/([^/]+)\/(goals|outcomes|routine-tasks|skills|chat|proactive)$/);
+  if(request.method==="POST"&&actorChild?.[1]&&actorChild[2]){
+    const input=await body(request);
+    const actorId=actorChild[1];
+    const value=actorChild[2]==="goals"?atlas.actors.addGoal(actorId,input)
+      :actorChild[2]==="outcomes"?atlas.actors.addOutcome(actorId,input)
+      :actorChild[2]==="routine-tasks"?atlas.actors.addRoutineTask(actorId,input)
+      :actorChild[2]==="skills"?atlas.actors.createSkill(actorId,input)
+      :actorChild[2]==="chat"?await atlas.actors.chat(actorId,input.message)
+      :atlas.actors.proactive(actorId,input.content);
+    send(response,actorChild[2]==="chat"?200:201,value);return true;
+  }
+  const outcomeObservation=url.pathname.match(/^\/api\/actor-outcomes\/([^/]+)\/observations$/);
+  if(request.method==="POST"&&outcomeObservation?.[1]){const input=await body(request);send(response,200,atlas.actors.recordOutcome(outcomeObservation[1],input.value));return true;}
+  const scheduleMatch=url.pathname.match(/^\/api\/routine-tasks\/([^/]+)\/schedule$/);
+  if(request.method==="POST"&&scheduleMatch?.[1]){send(response,201,atlas.actors.compileSchedule(scheduleMatch[1],await body(request)));return true;}
+  const skillAction=url.pathname.match(/^\/api\/actor-skills\/([^/]+)\/(rehearse|template)$/);
+  if(request.method==="POST"&&skillAction?.[1]){
+    const input=await body(request);
+    send(response,200,skillAction[2]==="rehearse"?atlas.actors.rehearseSkill(skillAction[1],input):atlas.actors.createTemplate(skillAction[1]));return true;
+  }
+  const templateUse=url.pathname.match(/^\/api\/skill-templates\/([^/]+)\/actors\/([^/]+)$/);
+  if(request.method==="POST"&&templateUse?.[1]&&templateUse[2]){send(response,201,atlas.actors.createSkillFromTemplate(templateUse[2],templateUse[1],await body(request)));return true;}
+  const environmentState=url.pathname.match(/^\/api\/environments\/([^/]+)\/operational-state$/);
+  if(request.method==="POST"&&environmentState?.[1]){send(response,201,atlas.actors.recordEnvironmentState(environmentState[1],await body(request)));return true;}
+  const environmentSkill=url.pathname.match(/^\/api\/environments\/([^/]+)\/environmental-skills$/);
+  if(request.method==="POST"&&environmentSkill?.[1]){send(response,201,atlas.actors.proveEnvironmentalSkill(environmentSkill[1],await body(request)));return true;}
+  const assessment=url.pathname.match(/^\/api\/actors\/([^/]+)\/assess\/([^/]+)$/);
+  if(request.method==="POST"&&assessment?.[1]&&assessment[2]){await body(request);send(response,200,atlas.actors.assess(assessment[1],assessment[2]));return true;}
+  const deploymentAction=url.pathname.match(/^\/api\/actor-deployments\/([^/]+)\/(configurations|deploy|suspend|refresh)$/);
+  if(request.method==="POST"&&deploymentAction?.[1]){
+    const input=await body(request);
+    const deploymentId=deploymentAction[1];
+    const value=deploymentAction[2]==="configurations"?atlas.actors.addConfiguration(deploymentId,input)
+      :deploymentAction[2]==="deploy"?atlas.actors.deploy(deploymentId)
+      :deploymentAction[2]==="suspend"?atlas.actors.suspend(deploymentId,input.reason)
+      :(()=>{atlas.actors.refreshAll();return atlas.actors.state();})();
+    send(response,deploymentAction[2]==="configurations"?201:200,value);return true;
+  }
+  const deploymentHealth=url.pathname.match(/^\/api\/actor-deployments\/([^/]+)\/health-gates$/);
+  if(request.method==="POST"&&deploymentHealth?.[1]){send(response,201,atlas.actors.setHealthGate(deploymentHealth[1],await body(request)));return true;}
   if (request.method === "POST" && url.pathname === "/api/agents") {
-    send(response, 201, atlas.createAgent(await body(request)));
+    const input=await body(request);
+    if(input.lifecycle!=="temporary")throw new Error("Persistent user-facing agents have been replaced by global Actors.");
+    send(response, 201, atlas.createAgent(input));
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/workflows") {
