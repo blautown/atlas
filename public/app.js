@@ -146,7 +146,7 @@ function render() {
     <div class="roadmap-body"><div class="item-head"><div><strong>${esc(milestone.title)}</strong><small>${esc(milestone.id)} · ${esc(milestone.deliverables.length)} deliverables</small></div>${badge(milestone.status)}</div><p>${esc(milestone.objective)}</p>${renderMilestoneProgress(milestone)}<div class="actions"><button class="secondary" data-roadmap="${esc(milestone.id)}" data-roadmap-action="discuss">Discuss</button><button data-roadmap="${esc(milestone.id)}" data-roadmap-action="implement">Start milestone</button></div></div>
   </div>`).join("")}</div>` : empty("Roadmap unavailable", "ATLAS could not load the repository roadmap.");
 
-  for (const select of [$("#runEnvironment"), $("#agentEnvironment")]) {
+  for (const select of [$("#runEnvironment"), $("#agentEnvironment")].filter(Boolean)) {
     const current = select.value;
     select.innerHTML = state.environments.map((env) => `<option value="${env.id}">${esc(env.name)} · ${esc(env.status)}</option>`).join("");
     if (current) select.value = current;
