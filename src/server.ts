@@ -120,6 +120,18 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
     const base=atlas.state(); send(response, 200, { ...base, providers: { ...(base.providers as Record<string, unknown>), browser: "extension-bridge" }, connector: connector.state(), browser: browserBridge.state(), learning: observations.state() });
     return true;
   }
+  if (request.method === "GET" && url.pathname === "/api/registry") { send(response, 200, atlas.registry.state()); return true; }
+  if (request.method === "POST" && url.pathname === "/api/registry/companies") { send(response, 201, atlas.registry.createCompany(await body(request))); return true; }
+  if (request.method === "POST" && url.pathname === "/api/registry/businesses") { send(response, 201, atlas.registry.createBusiness(await body(request))); return true; }
+  if (request.method === "POST" && url.pathname === "/api/registry/workforces") { send(response, 201, atlas.registry.createWorkforce(await body(request))); return true; }
+  if (request.method === "POST" && url.pathname === "/api/registry/assignments") { send(response, 201, atlas.registry.assignBusiness(await body(request))); return true; }
+  if (request.method === "POST" && url.pathname === "/api/registry/cells") { send(response, 201, atlas.registry.createCell(await body(request))); return true; }
+  if (request.method === "POST" && url.pathname === "/api/registry/positions") { send(response, 201, atlas.registry.createPosition(await body(request))); return true; }
+  if (request.method === "POST" && url.pathname === "/api/registry/operators") { send(response, 201, atlas.registry.createOperator(await body(request))); return true; }
+  if (request.method === "POST" && url.pathname === "/api/registry/occupancies") { send(response, 201, atlas.registry.occupy(await body(request))); return true; }
+  if (request.method === "POST" && url.pathname === "/api/registry/loadouts") { send(response, 201, atlas.registry.createLoadout(await body(request))); return true; }
+  if (request.method === "POST" && url.pathname === "/api/registry/workforce-loadouts") { const input=await body(request); send(response, 201, atlas.registry.attachLoadout(input.workforceId,input.loadoutId)); return true; }
+  if (request.method === "POST" && url.pathname === "/api/registry/deployments") { send(response, 201, atlas.registry.deploy(await body(request))); return true; }
   if (request.method === "POST" && url.pathname === "/api/environments") {
     send(response, 201, await atlas.onboardEnvironment(await body(request)));
     return true;

@@ -4,6 +4,7 @@ import path from "node:path";
 import type { AtlasDatabase } from "./db.js";
 import type { ExecutionBackend, ModelProvider } from "./types.js";
 import { ActorService } from "./actors.js";
+import { RegistryService } from "./registry.js";
 import { LocalToolBroker, type AtlasPermission, type ToolBroker } from "./tool-broker.js";
 import { assertInside, id, json, now, parseJson, safeError } from "./util.js";
 
@@ -159,6 +160,7 @@ const developerSchema = {
 
 export class Atlas {
   readonly actors: ActorService;
+  readonly registry: RegistryService;
 
   constructor(
     readonly db: AtlasDatabase,
@@ -169,6 +171,7 @@ export class Atlas {
     public adaModel: ModelProvider = model
   ) {
     this.actors = new ActorService(db, () => this.model);
+    this.registry = new RegistryService(db);
   }
 
   audit(actorType: string, actorId: string | null, action: string, entityType: string, entityId: string | null, detail: unknown = {}): void {
@@ -219,6 +222,7 @@ export class Atlas {
         FROM messages msg JOIN conversations c ON c.id=msg.conversation_id
         ORDER BY msg.created_at ASC LIMIT 200`),
       actorSystem: this.actors.state(),
+      registry: this.registry.state(),
       providers: { model: this.model.name, modelId: this.model.model ?? null, operations: { provider: this.model.name, modelId: this.model.model ?? null }, ada: { provider: this.adaModel.name, modelId: this.adaModel.model ?? null }, execution: this.execution.name, browser: "unconfigured" }
     };
   }
